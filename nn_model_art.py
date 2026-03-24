@@ -1,588 +1,454 @@
-"""Fuzzy ART classifier for MNIST.
+"""ART model utilities for 8x8 alphabet recognition (A-T)."""
 
-Why: complements CNN/FFN with a template-based model that still exposes
-get_features for Mahalanobis OOD; changing vigilance or feature shape requires
-matching OOD params and artifact regeneration.
-"""
+from __future__ import annotations
 
-import torch
-from torch import nn
-import torch.nn.functional as F
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Literal, Sequence, Tuple
 
-
-class FuzzyARTClassifier(nn.Module):
-    """
-    Fuzzy Adaptive Resonance Theory (Fuzzy ART) Network for MNIST classification.
-    
-    ART networks are biologically-inspired neural architectures that perform
-    stable incremental learning without catastrophic forgetting. This implementation
-    uses Fuzzy ART which handles continuous-valued inputs.
-    
-    Key characteristics:
-    - Self-organizing clustering with vigilance parameter
-    - Stable learning (no catastrophic forgetting)
-    - Fast online learning capability
-    - Complement coding for better pattern matching
-    
-    Architecture:
-    - Input layer: 28x28 = 784 dimensions (flattened MNIST images)
-    - Category layer: Dynamically grown template nodes (max_categories)
-    - Vigilance parameter controls specificity vs generalization
-    """
-    
-    def __init__(self, input_dim=784, max_categories=100, vigilance=0.75, 
-                 learning_rate=0.5, choice_alpha=0.001,
-                 count_penalty_gamma=0.01, max_category_count=None):
-        """
-        Initialize Fuzzy ART network.
-        
-        Args:
-            input_dim: Dimension of input patterns (default 784 for 28x28 MNIST)
-            max_categories: Maximum number of category nodes to create
-            vigilance: Vigilance parameter (0-1). Higher = more specific categories
-            learning_rate: Learning rate for template updates (0-1)
-            choice_alpha: Choice parameter for category selection (small positive)
-            count_penalty_gamma: Penalty strength for overused categories
-            max_category_count: Hard cap on patterns per category (None disables)
-        """
-        super().__init__()
-        
-        self.input_dim = input_dim
-        self.max_categories = max_categories
-        self.vigilance = vigilance
-        self.learning_rate = learning_rate
-        self.choice_alpha = choice_alpha
-        self.count_penalty_gamma = count_penalty_gamma
-        self.max_category_count = max_category_count
-        
-        # Complement coded input dimension (doubles input size)
-        # Complement coding appends (1-x) to input x, creating [x, 1-x]
-        # This prevents category proliferation and ensures symmetric pattern matching
-        # e.g., [0.8, 0.2] becomes [0.8, 0.2, 0.2, 0.8] so both presence AND absence of features matter
-        self.coded_dim = input_dim * 2
-        
-        # Category templates (weights) - initialized to 1 for uncommitted nodes
-        # Shape: [max_categories, coded_dim]
-        self.register_buffer('templates', torch.ones(max_categories, self.coded_dim))
-        
-        # Track which categories are committed (already have been used)
-        self.register_buffer('committed', torch.zeros(max_categories, dtype=torch.bool))
-        
-        # Track category labels for classification (mapping category -> digit class)
-        self.register_buffer('category_labels', torch.full((max_categories,), -1, dtype=torch.long))
-        
-        # Count patterns assigned to each category (for confidence/voting)
-        self.register_buffer('category_counts', torch.zeros(max_categories, dtype=torch.long))
-        
-        # Track number of committed categories (must be a buffer to persist)
-        self.register_buffer('_num_committed', torch.tensor(0, dtype=torch.long))
-    
-    @property
-    def num_committed(self):
-        """Property to access num_committed as an integer."""
-        return self._num_committed.item()
-    
-    @num_committed.setter
-    def num_committed(self, value):
-        """Property setter to update num_committed buffer."""
-        self._num_committed.fill_(value)
-        
-    def complement_code(self, x):
-        """
-        Apply complement coding to input patterns.
-        
-        Complement coding doubles the input dimension by appending (1 - x),
-        which helps prevent category proliferation and improves matching.
-        
-        Args:
-            x: Input tensor [batch_size, input_dim], values normalized to [0, 1]
-        
-        Returns:
-            Complement coded tensor [batch_size, coded_dim]
-        """
-        return torch.cat([x, 1 - x], dim=-1)
-    
-    def category_choice(self, coded_input, committed_mask):
-        """
-        Compute category choice function T_j for all categories.
-        
-        T_j = |x ∧ w_j| / (α + |w_j| + γ * count_j)
-        
-        where ∧ is fuzzy AND (element-wise minimum), |·| is L1 norm,
-        and γ * count_j penalizes mega-categories to prevent black holes.
-        Higher values indicate better match.
-        
-        Args:
-            coded_input: Complement coded input [batch_size, coded_dim]
-            committed_mask: Boolean mask of committed categories [max_categories]
-        
-        Returns:
-            Choice values [batch_size, max_categories]
-        """
-        # Fuzzy AND: element-wise minimum
-        fuzzy_and = torch.minimum(
-            coded_input.unsqueeze(1),  # [batch, 1, coded_dim]
-            self.templates.unsqueeze(0)  # [1, max_categories, coded_dim]
-        )
-        
-        # Numerator: |x ∧ w_j|
-        numerator = fuzzy_and.sum(dim=-1)  # [batch, max_categories]
-        
-        # Denominator: α + |w_j| + γ * count_j
-        # The count penalty discourages selecting overused categories (prevents black holes)
-        count_penalty = self.count_penalty_gamma * self.category_counts.float()
-        denominator = self.choice_alpha + self.templates.sum(dim=-1) + count_penalty  # [max_categories]
-        
-        # Choice function
-        choice_values = numerator / denominator.unsqueeze(0)
-        
-        # Mask out uncommitted categories (set to -inf so they're not selected)
-        choice_values = choice_values.masked_fill(~committed_mask.unsqueeze(0), float('-inf'))
-        
-        return choice_values
-    
-    def match_function(self, coded_input, category_idx):
-        """
-        Compute match function (vigilance test).
-        
-        Match = |x ∧ w_j| / |x|
-        
-        This measures how well the category template matches the input.
-        Must be >= vigilance threshold to accept the category.
-        
-        Args:
-            coded_input: Complement coded input [batch_size, coded_dim]
-            category_idx: Category indices to test [batch_size]
-        
-        Returns:
-            Match values [batch_size]
-        """
-        # Select templates for chosen categories
-        selected_templates = self.templates[category_idx]  # [batch_size, coded_dim]
-        
-        # Fuzzy AND
-        fuzzy_and = torch.minimum(coded_input, selected_templates)
-        
-        # Match = |x ∧ w_j| / |x|
-        numerator = fuzzy_and.sum(dim=-1)
-        denominator = coded_input.sum(dim=-1)
-        
-        return numerator / (denominator + 1e-10)
-    
-    def update_template(self, coded_input, category_idx):
-        """
-        Update category template using fast learning rule.
-        
-        w_j(new) = β * (x ∧ w_j(old)) + (1 - β) * w_j(old)
-        
-        Args:
-            coded_input: Complement coded input [coded_dim]
-            category_idx: Category index to update
-        """
-        old_template = self.templates[category_idx]
-        fuzzy_and = torch.minimum(coded_input, old_template)
-        new_template = self.learning_rate * fuzzy_and + (1 - self.learning_rate) * old_template
-        self.templates[category_idx] = new_template
-    
-    def train_pattern(self, x, label):
-        """
-        Train on a single pattern using ART learning algorithm.
-        
-        Args:
-            x: Input pattern [input_dim], normalized to [0, 1]
-            label: Ground truth class label (0-9 for MNIST)
-        
-        Returns:
-            Selected category index
-        """
-        # Ensure label is a plain int (avoid tensor truthiness issues)
-        label_int = int(label.item()) if torch.is_tensor(label) else int(label)
-
-        # Complement code the input
-        coded_input = self.complement_code(x.unsqueeze(0)).squeeze(0)
-        
-        # Resonance search loop
-        reset_categories = torch.zeros(self.max_categories, dtype=torch.bool, device=x.device)
-        max_resets = min(self.num_committed, self.max_categories // 2)  # Prevent infinite loops
-        
-        while True:
-            # Create committed mask excluding reset categories
-            available_mask = self.committed & ~reset_categories
-            
-            # If no committed categories available, create new one
-            if not available_mask.any():
-                if self.num_committed < self.max_categories:
-                    # Commit new category
-                    category_idx = self.num_committed
-                    self.committed[category_idx] = True
-                    self.templates[category_idx] = coded_input
-                    self.category_labels[category_idx] = label_int
-                    self.category_counts[category_idx] = 1
-                    self.num_committed += 1
-                    return category_idx
-                else:
-                    # All categories exhausted - fall back to unsupervised best match (avoid infinite loop)
-                    category_idx = torch.argmax(
-                        self.category_choice(coded_input.unsqueeze(0), self.committed).squeeze(0)
-                    ).item()
-                    self.update_template(coded_input, category_idx)
-                    self.category_counts[category_idx] += 1
-                    return category_idx
-            
-            # Find best matching category among available
-            choice_values = self.category_choice(coded_input.unsqueeze(0), available_mask).squeeze(0)
-            category_idx = torch.argmax(choice_values).item()
-            
-            # Vigilance test (similarity-based)
-            match_value = self.match_function(coded_input.unsqueeze(0), 
-                                             torch.tensor([category_idx], device=x.device)).item()
-            
-            # CRITICAL: Supervised vigilance - reject if labels don't match
-            # This prevents cross-class template contamination and mega-category collapse
-            category_label = self.category_labels[category_idx].item()
-            label_match = (category_label == -1) or (category_label == label_int)
-            
-            maxed_out = False
-            if self.max_category_count is not None:
-                maxed_out = self.category_counts[category_idx].item() >= self.max_category_count
-
-            if match_value >= self.vigilance and label_match and not maxed_out:
-                # Resonance achieved! Update template
-                self.update_template(coded_input, category_idx)
-                # IMPORTANT: Only update label on first assignment (initial commit)
-                # Don't overwrite the label for subsequent pattern matches
-                if self.category_labels[category_idx] == -1:
-                    self.category_labels[category_idx] = label_int
-                self.category_counts[category_idx] += 1
-                return category_idx
-            else:
-                # Mismatch - reset this category and try again
-                reset_categories[category_idx] = True
-                
-                # If we've rejected all committed categories, create a new one (supervised ART)
-                if not (self.committed & ~reset_categories).any() and self.num_committed < self.max_categories:
-                    category_idx = self.num_committed
-                    self.committed[category_idx] = True
-                    self.templates[category_idx] = coded_input
-                    self.category_labels[category_idx] = label_int
-                    self.category_counts[category_idx] = 1
-                    self.num_committed += 1
-                    return category_idx
-                
-                # Safety valve: if too many resets, fall back to unsupervised matching
-                if reset_categories.sum().item() > max_resets:
-                    category_idx = torch.argmax(
-                        self.category_choice(coded_input.unsqueeze(0), self.committed).squeeze(0)
-                    ).item()
-                    self.update_template(coded_input, category_idx)
-                    self.category_counts[category_idx] += 1
-                    return category_idx
-    
-    def forward(self, x, training=False, labels=None):
-        """
-        Forward pass through the network.
-        
-        Args:
-            x: Input images [batch_size, 1, 28, 28] or [batch_size, 784]
-            training: If True, perform learning on each pattern
-            labels: Ground truth labels (required if training=True)
-        
-        Returns:
-            If training: category indices [batch_size]
-            If inference: class logits [batch_size, 10]
-        """
-        # Flatten if necessary
-        if x.dim() == 4:
-            x = x.view(x.size(0), -1)
-        
-        # Normalize to [0, 1]
-        x = (x - x.min()) / (x.max() - x.min() + 1e-10)
-        
-        if training:
-            if labels is None:
-                raise ValueError("Labels required for training mode")
-            
-            # Train on each pattern sequentially
-            selected_categories = []
-            for i in range(x.size(0)):
-                cat_idx = self.train_pattern(x[i], labels[i])
-                selected_categories.append(cat_idx)
-            
-            return torch.tensor(selected_categories, device=x.device)
-        else:
-            # Inference: find best matching category and return its label
-            return self.predict(x)
-    
-    def predict(self, x):
-        """
-        Predict class labels for input patterns.
-        
-        Args:
-            x: Input patterns [batch_size, input_dim], normalized to [0, 1]
-        
-        Returns:
-            Class logits [batch_size, 10] for compatibility with CrossEntropyLoss
-        """
-        batch_size = x.size(0)
-        coded_input = self.complement_code(x)
-        
-        if self.num_committed == 0:
-            # No trained categories, return uniform distribution
-            return torch.zeros(batch_size, 10, device=x.device)
-        
-        # Compute choice values for all committed categories
-        choice_values = self.category_choice(coded_input, self.committed)
-        
-        # For each input, find best matching category
-        best_categories = torch.argmax(choice_values, dim=1)
-        
-        # Convert to class predictions with voting mechanism
-        logits = torch.zeros(batch_size, 10, device=x.device)
-        
-        for i in range(batch_size):
-            cat_idx = best_categories[i].item()
-            
-            # Use the choice value (match score) as confidence
-            choice_score = choice_values[i, cat_idx].item()
-            
-            # Get all categories with same label (voting)
-            pred_label = self.category_labels[cat_idx].item()
-            
-            if pred_label >= 0:  # Valid label
-                # Voting: accumulate choice scores from all categories with same label
-                for j in range(self.num_committed):
-                    if self.category_labels[j] == pred_label:
-                        logits[i, pred_label] += choice_values[i, j]
-            
-        return logits
-    
-    def get_features(self, x):
-        """
-        Extract feature representation for OOD detection.
-        
-        Returns the best matching category's template as the feature vector.
-        
-        Args:
-            x: Input images [batch_size, 1, 28, 28] or [batch_size, 784]
-        
-        Returns:
-            Feature vectors [batch_size, coded_dim]
-        """
-        if x.dim() == 4:
-            x = x.view(x.size(0), -1)
-        
-        x = (x - x.min()) / (x.max() - x.min() + 1e-10)
-        coded_input = self.complement_code(x)
-        
-        if self.num_committed == 0:
-            return coded_input
-        
-        # Find best matching categories
-        choice_values = self.category_choice(coded_input, self.committed)
-        best_categories = torch.argmax(choice_values, dim=1)
-        
-        # Return matched template as features
-        return self.templates[best_categories]
+from PIL import Image
 
 
-class FuzzyARTMAPClassifier(nn.Module):
-    """
-    Fuzzy ARTMAP classifier for supervised learning.
+ALPHABET_A_TO_T: Tuple[str, ...] = tuple(chr(code) for code in range(ord("A"), ord("T") + 1))
+DEFAULT_PATTERN_DIR = Path("patterns_orig")
+DEFAULT_MODEL_DIR = Path("patterns_Ass4")
+ModelType = Literal["art1", "fuzzy_art", "aug_fuzzy_art"]
+MODEL_TYPES: Tuple[ModelType, ...] = ("art1", "fuzzy_art", "aug_fuzzy_art")
 
-    Adds match tracking to enforce label-consistent category selection.
-    """
+
+def default_model_path(model_type: ModelType) -> Path:
+    return DEFAULT_MODEL_DIR / f"{model_type}_a_to_t.json"
+
+
+def _threshold_pixel(value: int) -> float:
+    return 1.0 if value < 128 else 0.0
+
+
+def _clip01(value: float) -> float:
+    if value < 0.0:
+        return 0.0
+    if value > 1.0:
+        return 1.0
+    return value
+
+
+def load_pattern_vector(image_path: Path, expected_size: Tuple[int, int] = (8, 8)) -> List[float]:
+    """Load and flatten a pattern image as a binary vector of length 64."""
+    image = Image.open(image_path).convert("L")
+    if image.size != expected_size:
+        image = image.resize(expected_size, Image.Resampling.NEAREST)
+    pixels = list(image.tobytes())
+    return [_threshold_pixel(px) for px in pixels]
+
+
+def discover_pattern_images(pattern_dir: Path) -> Dict[str, Path]:
+    mapping: Dict[str, Path] = {}
+    if not pattern_dir.exists():
+        return mapping
+
+    for label in ALPHABET_A_TO_T:
+        for extension in (".png", ".jpg", ".jpeg"):
+            candidate = pattern_dir / f"pattern_{label}{extension}"
+            if candidate.exists():
+                mapping[label] = candidate
+                break
+
+    return mapping
+
+
+def fuzzy_and_sum(a: Sequence[float], b: Sequence[float]) -> float:
+    return sum(min(x, y) for x, y in zip(a, b))
+
+
+def complement_code(vector: Sequence[float]) -> List[float]:
+    return list(vector) + [1.0 - value for value in vector]
+
+
+@dataclass
+class Prediction:
+    label: str
+    confidence: float
+
+
+class BaseARTCharacterModel:
+    """Base class for ART-family character models."""
+
+    model_type: ModelType = "fuzzy_art"
 
     def __init__(
         self,
-        input_dim=784,
-        max_categories=100,
-        vigilance=0.75,
-        learning_rate=0.5,
-        choice_alpha=0.001,
-        count_penalty_gamma=0.01,
-        max_category_count=6000,
-        match_tracking_epsilon=1e-3,
-    ):
-        super().__init__()
+        vigilance: float = 0.82,
+        learning_rate: float = 0.6,
+        choice_alpha: float = 1e-3,
+        allowed_labels: Iterable[str] = ALPHABET_A_TO_T,
+        input_size: int = 64,
+    ) -> None:
+        self.vigilance = float(vigilance)
+        self.learning_rate = float(learning_rate)
+        self.choice_alpha = float(choice_alpha)
+        self.allowed_labels = tuple(sorted(set(allowed_labels)))
+        self.input_size = int(input_size)
+        self.templates: List[List[float]] = []
+        self.template_labels: List[str] = []
 
-        self.input_dim = input_dim
-        self.max_categories = max_categories
-        self.vigilance = vigilance
-        self.learning_rate = learning_rate
-        self.choice_alpha = choice_alpha
-        self.count_penalty_gamma = count_penalty_gamma
-        self.max_category_count = max_category_count
-        self.match_tracking_epsilon = match_tracking_epsilon
-
-        self.coded_dim = input_dim * 2
-
-        self.register_buffer('templates', torch.ones(max_categories, self.coded_dim))
-        self.register_buffer('committed', torch.zeros(max_categories, dtype=torch.bool))
-        self.register_buffer('category_labels', torch.full((max_categories,), -1, dtype=torch.long))
-        self.register_buffer('category_counts', torch.zeros(max_categories, dtype=torch.long))
-
-        # Track number of committed categories (must be a buffer to persist)
-        self.register_buffer('_num_committed', torch.tensor(0, dtype=torch.long))
-    
     @property
-    def num_committed(self):
-        """Property to access num_committed as an integer."""
-        return self._num_committed.item()
-    
-    @num_committed.setter
-    def num_committed(self, value):
-        """Property setter to update num_committed buffer."""
-        self._num_committed.fill_(value)
+    def coded_size(self) -> int:
+        return self.input_size
 
-    def complement_code(self, x):
-        return torch.cat([x, 1 - x], dim=-1)
+    def _preprocess_input(self, vector: Sequence[float]) -> List[float]:
+        return [_clip01(float(value)) for value in vector]
 
-    def category_choice(self, coded_input, committed_mask):
-        fuzzy_and = torch.minimum(
-            coded_input.unsqueeze(1),
-            self.templates.unsqueeze(0),
+    def _encode_input(self, vector: Sequence[float]) -> List[float]:
+        return list(vector)
+
+    def _choice(self, coded_input: Sequence[float], template: Sequence[float]) -> float:
+        numerator = fuzzy_and_sum(coded_input, template)
+        denominator = self.choice_alpha + sum(template)
+        return numerator / denominator
+
+    def _match(self, coded_input: Sequence[float], template: Sequence[float]) -> float:
+        numerator = fuzzy_and_sum(coded_input, template)
+        denominator = sum(coded_input) + 1e-12
+        return numerator / denominator
+
+    def _update_template(self, category_index: int, coded_input: Sequence[float]) -> None:
+        current = self.templates[category_index]
+        updated: List[float] = []
+        for value, weight in zip(coded_input, current):
+            fuzzy_value = min(value, weight)
+            new_weight = self.learning_rate * fuzzy_value + (1.0 - self.learning_rate) * weight
+            updated.append(new_weight)
+        self.templates[category_index] = updated
+
+    def _train_with_vigilance(self, vector: Sequence[float], label: str, vigilance: float) -> int:
+        if label not in self.allowed_labels:
+            raise ValueError(f"Label '{label}' is not in allowed labels: {self.allowed_labels}")
+        if len(vector) != self.input_size:
+            raise ValueError(f"Expected vector length {self.input_size}, got {len(vector)}")
+
+        preprocessed = self._preprocess_input(vector)
+        coded_input = self._encode_input(preprocessed)
+
+        candidates = [
+            (self._choice(coded_input, template), index)
+            for index, template_label in enumerate(self.template_labels)
+            if template_label == label
+            for template in [self.templates[index]]
+        ]
+        candidates.sort(reverse=True)
+
+        for _, category_index in candidates:
+            template = self.templates[category_index]
+            if self._match(coded_input, template) >= vigilance:
+                self._update_template(category_index, coded_input)
+                return category_index
+
+        self.templates.append(list(coded_input))
+        self.template_labels.append(label)
+        return len(self.templates) - 1
+
+    def train_pattern(self, vector: Sequence[float], label: str, augmented: bool = False) -> int:
+        _ = augmented
+        return self._train_with_vigilance(vector, label, self.vigilance)
+
+    def predict(self, vector: Sequence[float]) -> Prediction:
+        if not self.templates:
+            raise RuntimeError("Model has no templates. Train or load a model first.")
+        if len(vector) != self.input_size:
+            raise ValueError(f"Expected vector length {self.input_size}, got {len(vector)}")
+
+        preprocessed = self._preprocess_input(vector)
+        coded_input = self._encode_input(preprocessed)
+
+        best_index = 0
+        best_choice = float("-inf")
+        for idx, template in enumerate(self.templates):
+            score = self._choice(coded_input, template)
+            if score > best_choice:
+                best_choice = score
+                best_index = idx
+
+        match_score = self._match(coded_input, self.templates[best_index])
+        return Prediction(label=self.template_labels[best_index], confidence=match_score)
+
+    def summary(self) -> Dict[str, object]:
+        by_label: Dict[str, int] = {label: 0 for label in self.allowed_labels}
+        for label in self.template_labels:
+            by_label[label] = by_label.get(label, 0) + 1
+
+        return {
+            "model_type": self.model_type,
+            "vigilance": self.vigilance,
+            "learning_rate": self.learning_rate,
+            "choice_alpha": self.choice_alpha,
+            "input_size": self.input_size,
+            "coded_size": self.coded_size,
+            "templates": len(self.templates),
+            "templates_per_label": by_label,
+        }
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "model_type": self.model_type,
+            "vigilance": self.vigilance,
+            "learning_rate": self.learning_rate,
+            "choice_alpha": self.choice_alpha,
+            "input_size": self.input_size,
+            "allowed_labels": list(self.allowed_labels),
+            "templates": self.templates,
+            "template_labels": self.template_labels,
+        }
+
+    @staticmethod
+    def _as_float(value: object, default: float) -> float:
+        if isinstance(value, (int, float, str)):
+            try:
+                return float(value)
+            except ValueError:
+                return default
+        return default
+
+    @staticmethod
+    def _as_int(value: object, default: int) -> int:
+        if isinstance(value, (int, float, str)):
+            try:
+                return int(value)
+            except ValueError:
+                return default
+        return default
+
+    @staticmethod
+    def _as_label_list(value: object, default: Sequence[str]) -> List[str]:
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if isinstance(value, tuple):
+            return [str(item) for item in value]
+        return [str(item) for item in default]
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, object]) -> "BaseARTCharacterModel":
+        vigilance = cls._as_float(payload.get("vigilance"), 0.82)
+        learning_rate = cls._as_float(payload.get("learning_rate"), 0.6)
+        choice_alpha = cls._as_float(payload.get("choice_alpha"), 1e-3)
+        allowed_labels = cls._as_label_list(payload.get("allowed_labels"), ALPHABET_A_TO_T)
+        input_size = cls._as_int(payload.get("input_size"), 64)
+
+        model = cls(
+            vigilance=vigilance,
+            learning_rate=learning_rate,
+            choice_alpha=choice_alpha,
+            allowed_labels=allowed_labels,
+            input_size=input_size,
         )
 
-        numerator = fuzzy_and.sum(dim=-1)
-        count_penalty = self.count_penalty_gamma * self.category_counts.float()
-        denominator = self.choice_alpha + self.templates.sum(dim=-1) + count_penalty
-        choice_values = numerator / denominator.unsqueeze(0)
-        choice_values = choice_values.masked_fill(~committed_mask.unsqueeze(0), float('-inf'))
-        return choice_values
+        templates_raw = payload.get("templates")
+        labels_raw = payload.get("template_labels")
 
-    def match_function(self, coded_input, category_idx):
-        selected_templates = self.templates[category_idx]
-        fuzzy_and = torch.minimum(coded_input, selected_templates)
-        numerator = fuzzy_and.sum(dim=-1)
-        denominator = coded_input.sum(dim=-1)
-        return numerator / (denominator + 1e-10)
+        parsed_templates: List[List[float]] = []
+        if isinstance(templates_raw, list):
+            for row in templates_raw:
+                if isinstance(row, list):
+                    parsed_templates.append([cls._as_float(value, 0.0) for value in row])
 
-    def update_template(self, coded_input, category_idx):
-        old_template = self.templates[category_idx]
-        fuzzy_and = torch.minimum(coded_input, old_template)
-        new_template = self.learning_rate * fuzzy_and + (1 - self.learning_rate) * old_template
-        self.templates[category_idx] = new_template
+        parsed_labels = cls._as_label_list(labels_raw, [])
 
-    def train_pattern(self, x, label):
-        label_int = int(label.item()) if torch.is_tensor(label) else int(label)
-        coded_input = self.complement_code(x.unsqueeze(0)).squeeze(0)
+        model.templates = parsed_templates
+        model.template_labels = parsed_labels
 
-        reset_categories = torch.zeros(self.max_categories, dtype=torch.bool, device=x.device)
-        local_vigilance = self.vigilance
-        max_resets = min(self.num_committed, self.max_categories // 2)
+        if len(model.templates) != len(model.template_labels):
+            raise ValueError("Saved model is invalid: templates and labels length mismatch")
 
-        while True:
-            available_mask = self.committed & ~reset_categories
+        return model
 
-            if not available_mask.any():
-                if self.num_committed < self.max_categories:
-                    category_idx = self.num_committed
-                    self.committed[category_idx] = True
-                    self.templates[category_idx] = coded_input
-                    self.category_labels[category_idx] = label_int
-                    self.category_counts[category_idx] = 1
-                    self.num_committed += 1
-                    return category_idx
-                category_idx = torch.argmax(
-                    self.category_choice(coded_input.unsqueeze(0), self.committed).squeeze(0)
-                ).item()
-                self.update_template(coded_input, category_idx)
-                self.category_counts[category_idx] += 1
-                return category_idx
+    def save(self, model_path: Path) -> None:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        with model_path.open("w", encoding="utf-8") as handle:
+            json.dump(self.to_dict(), handle, indent=2)
 
-            choice_values = self.category_choice(coded_input.unsqueeze(0), available_mask).squeeze(0)
-            category_idx = torch.argmax(choice_values).item()
 
-            match_value = self.match_function(
-                coded_input.unsqueeze(0),
-                torch.tensor([category_idx], device=x.device),
-            ).item()
+class ART1CharacterModel(BaseARTCharacterModel):
+    model_type: ModelType = "art1"
 
-            category_label = self.category_labels[category_idx].item()
-            label_match = (category_label == -1) or (category_label == label_int)
+    def _preprocess_input(self, vector: Sequence[float]) -> List[float]:
+        return [1.0 if float(value) >= 0.5 else 0.0 for value in vector]
 
-            maxed_out = False
-            if self.max_category_count is not None:
-                maxed_out = self.category_counts[category_idx].item() >= self.max_category_count
+    def _update_template(self, category_index: int, coded_input: Sequence[float]) -> None:
+        current = self.templates[category_index]
+        self.templates[category_index] = [
+            1.0 if current_value > 0.5 and input_value > 0.5 else 0.0
+            for current_value, input_value in zip(current, coded_input)
+        ]
 
-            if match_value >= local_vigilance and label_match and not maxed_out:
-                self.update_template(coded_input, category_idx)
-                if self.category_labels[category_idx] == -1:
-                    self.category_labels[category_idx] = label_int
-                self.category_counts[category_idx] += 1
-                return category_idx
 
-            reset_categories[category_idx] = True
+class FuzzyARTCharacterModel(BaseARTCharacterModel):
+    model_type: ModelType = "fuzzy_art"
 
-            # ARTMAP match tracking: small conservative vigilance increase on label mismatch
-            # Avoid aggressive vigilance escalation that causes category proliferation
-            if not label_match:
-                local_vigilance = min(self.vigilance + 0.03, 1.0)
+    @property
+    def coded_size(self) -> int:
+        return self.input_size * 2
 
-            if not (self.committed & ~reset_categories).any() and self.num_committed < self.max_categories:
-                category_idx = self.num_committed
-                self.committed[category_idx] = True
-                self.templates[category_idx] = coded_input
-                self.category_labels[category_idx] = label_int
-                self.category_counts[category_idx] = 1
-                self.num_committed += 1
-                return category_idx
+    def _encode_input(self, vector: Sequence[float]) -> List[float]:
+        return complement_code(vector)
 
-            if reset_categories.sum().item() > max_resets:
-                category_idx = torch.argmax(
-                    self.category_choice(coded_input.unsqueeze(0), self.committed).squeeze(0)
-                ).item()
-                self.update_template(coded_input, category_idx)
-                self.category_counts[category_idx] += 1
-                return category_idx
 
-    def forward(self, x, training=False, labels=None):
-        if x.dim() == 4:
-            x = x.view(x.size(0), -1)
+class AugmentedFuzzyARTCharacterModel(FuzzyARTCharacterModel):
+    model_type: ModelType = "aug_fuzzy_art"
 
-        x = (x - x.min()) / (x.max() - x.min() + 1e-10)
+    def __init__(
+        self,
+        vigilance: float = 0.82,
+        learning_rate: float = 0.6,
+        choice_alpha: float = 1e-3,
+        allowed_labels: Iterable[str] = ALPHABET_A_TO_T,
+        input_size: int = 64,
+        augmented_vigilance_drop: float = 0.08,
+        min_vigilance: float = 0.65,
+    ) -> None:
+        super().__init__(
+            vigilance=vigilance,
+            learning_rate=learning_rate,
+            choice_alpha=choice_alpha,
+            allowed_labels=allowed_labels,
+            input_size=input_size,
+        )
+        self.augmented_vigilance_drop = float(augmented_vigilance_drop)
+        self.min_vigilance = float(min_vigilance)
 
-        if training:
-            if labels is None:
-                raise ValueError("Labels required for training mode")
-            selected_categories = []
-            for i in range(x.size(0)):
-                cat_idx = self.train_pattern(x[i], labels[i])
-                selected_categories.append(cat_idx)
-            return torch.tensor(selected_categories, device=x.device)
+    def train_pattern(self, vector: Sequence[float], label: str, augmented: bool = False) -> int:
+        if augmented:
+            effective_vigilance = max(self.min_vigilance, self.vigilance - self.augmented_vigilance_drop)
+            return self._train_with_vigilance(vector, label, effective_vigilance)
+        return self._train_with_vigilance(vector, label, self.vigilance)
 
-        return self.predict(x)
+    def to_dict(self) -> Dict[str, object]:
+        payload = super().to_dict()
+        payload["augmented_vigilance_drop"] = self.augmented_vigilance_drop
+        payload["min_vigilance"] = self.min_vigilance
+        return payload
 
-    def predict(self, x):
-        batch_size = x.size(0)
-        coded_input = self.complement_code(x)
+    @classmethod
+    def from_dict(cls, payload: Dict[str, object]) -> "AugmentedFuzzyARTCharacterModel":
+        vigilance = cls._as_float(payload.get("vigilance"), 0.82)
+        learning_rate = cls._as_float(payload.get("learning_rate"), 0.6)
+        choice_alpha = cls._as_float(payload.get("choice_alpha"), 1e-3)
+        allowed_labels = cls._as_label_list(payload.get("allowed_labels"), ALPHABET_A_TO_T)
+        input_size = cls._as_int(payload.get("input_size"), 64)
 
-        if self.num_committed == 0:
-            return torch.zeros(batch_size, 10, device=x.device)
+        model = cls(
+            vigilance=vigilance,
+            learning_rate=learning_rate,
+            choice_alpha=choice_alpha,
+            allowed_labels=allowed_labels,
+            input_size=input_size,
+            augmented_vigilance_drop=cls._as_float(payload.get("augmented_vigilance_drop"), 0.08),
+            min_vigilance=cls._as_float(payload.get("min_vigilance"), 0.65),
+        )
 
-        choice_values = self.category_choice(coded_input, self.committed)
-        best_categories = torch.argmax(choice_values, dim=1)
+        templates_raw = payload.get("templates")
+        labels_raw = payload.get("template_labels")
 
-        logits = torch.zeros(batch_size, 10, device=x.device)
-        for i in range(batch_size):
-            cat_idx = best_categories[i].item()
-            pred_label = self.category_labels[cat_idx].item()
-            if pred_label >= 0:
-                for j in range(self.num_committed):
-                    if self.category_labels[j] == pred_label:
-                        logits[i, pred_label] += choice_values[i, j]
-        return logits
+        parsed_templates: List[List[float]] = []
+        if isinstance(templates_raw, list):
+            for row in templates_raw:
+                if isinstance(row, list):
+                    parsed_templates.append([cls._as_float(value, 0.0) for value in row])
 
-    def get_features(self, x):
-        if x.dim() == 4:
-            x = x.view(x.size(0), -1)
+        parsed_labels = cls._as_label_list(labels_raw, [])
 
-        x = (x - x.min()) / (x.max() - x.min() + 1e-10)
-        coded_input = self.complement_code(x)
+        model.templates = parsed_templates
+        model.template_labels = parsed_labels
 
-        if self.num_committed == 0:
-            return coded_input
+        if len(model.templates) != len(model.template_labels):
+            raise ValueError("Saved model is invalid: templates and labels length mismatch")
 
-        choice_values = self.category_choice(coded_input, self.committed)
-        best_categories = torch.argmax(choice_values, dim=1)
-        return self.templates[best_categories]
+        return model
+
+
+def create_model(
+    model_type: ModelType,
+    vigilance: float = 0.82,
+    learning_rate: float = 0.6,
+    choice_alpha: float = 1e-3,
+) -> BaseARTCharacterModel:
+    if model_type == "art1":
+        return ART1CharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
+    if model_type == "fuzzy_art":
+        return FuzzyARTCharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
+    if model_type == "aug_fuzzy_art":
+        return AugmentedFuzzyARTCharacterModel(
+            vigilance=vigilance,
+            learning_rate=learning_rate,
+            choice_alpha=choice_alpha,
+        )
+    raise ValueError(f"Unknown model type: {model_type}")
+
+
+def create_initial_model(
+    model_type: ModelType,
+    pattern_dir: Path = DEFAULT_PATTERN_DIR,
+    vigilance: float = 0.82,
+    learning_rate: float = 0.6,
+    choice_alpha: float = 1e-3,
+) -> BaseARTCharacterModel:
+    image_map = discover_pattern_images(pattern_dir)
+    missing = [label for label in ALPHABET_A_TO_T if label not in image_map]
+    if missing:
+        missing_text = ", ".join(missing)
+        raise FileNotFoundError(
+            f"Missing pattern files for labels: {missing_text}. Expected files in '{pattern_dir}'."
+        )
+
+    model = create_model(
+        model_type=model_type,
+        vigilance=vigilance,
+        learning_rate=learning_rate,
+        choice_alpha=choice_alpha,
+    )
+
+    for label in ALPHABET_A_TO_T:
+        vector = load_pattern_vector(image_map[label])
+        model.train_pattern(vector, label)
+
+    return model
+
+
+def create_initial_models(
+    model_types: Sequence[ModelType],
+    pattern_dir: Path = DEFAULT_PATTERN_DIR,
+    vigilance: float = 0.82,
+    learning_rate: float = 0.6,
+    choice_alpha: float = 1e-3,
+) -> Dict[ModelType, BaseARTCharacterModel]:
+    models: Dict[ModelType, BaseARTCharacterModel] = {}
+    for model_type in model_types:
+        models[model_type] = create_initial_model(
+            model_type=model_type,
+            pattern_dir=pattern_dir,
+            vigilance=vigilance,
+            learning_rate=learning_rate,
+            choice_alpha=choice_alpha,
+        )
+    return models
+
+
+def load_model(model_path: Path) -> BaseARTCharacterModel:
+    with model_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("Saved model must be a JSON object")
+
+    model_type_raw = payload.get("model_type", "fuzzy_art")
+    model_type = str(model_type_raw)
+    if model_type == "art1":
+        return ART1CharacterModel.from_dict(payload)
+    if model_type == "fuzzy_art":
+        return FuzzyARTCharacterModel.from_dict(payload)
+    if model_type == "aug_fuzzy_art":
+        return AugmentedFuzzyARTCharacterModel.from_dict(payload)
+
+    raise ValueError(f"Unknown model type in model file: {model_type}")
+
+
+def load_vector_from_path(image_path: Path) -> List[float]:
+    return load_pattern_vector(image_path)
