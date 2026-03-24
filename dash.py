@@ -189,7 +189,13 @@ def vigilance_sweep() -> None:
 
 
 def manage_patterns() -> None:
-    print("\nOpening pattern manager from patterns.py ...")
+    selected_folder = _ask_path("Pattern folder for manager", Path("patterns_orig"))
+
+    # Configure patterns.py defaults so its menu operations target the selected folder.
+    pattern_manager.DEFAULT_OUTPUT_DIR = str(selected_folder).replace("\\", "/")
+    pattern_manager.PATTERN_DB = pattern_manager.BASE_DIR / pattern_manager.DEFAULT_OUTPUT_DIR / "patterns"
+
+    print(f"\nOpening pattern manager for folder: {selected_folder}")
     pattern_manager.main()
 
 

@@ -275,8 +275,11 @@ def edit_pattern(patterns: Dict[str, Dict[str, Any]]) -> None:
 
 def view_pattern(patterns: Dict[str, Dict[str, Any]]) -> None:
     orig_dir = BASE_DIR / DEFAULT_OUTPUT_DIR
+    # Show every JPG image in the selected folder, regardless of naming convention.
+    supported_exts = (".jpg",)
+    image_candidates = list(orig_dir.glob("*"))
     image_files = sorted(
-        [p for p in orig_dir.glob("pattern_*") if p.suffix.lower() in (".png", ".jpg", ".jpeg")],
+        [p for p in image_candidates if p.suffix.lower() in supported_exts],
         key=lambda p: p.stem,
     )
 
@@ -287,14 +290,11 @@ def view_pattern(patterns: Dict[str, Dict[str, Any]]) -> None:
     images = []
     image_titles = []
     for image_path in image_files[:20]:
-        # Derive symbol from filename, e.g. pattern_A.png -> A
-        stem = image_path.stem  # "pattern_A"
-        symbol = stem.split("_", 1)[-1].upper() if "_" in stem else stem.upper()
         print(f"- {image_path.name}")
         image = Image.open(image_path).convert("L")
         image = image.point(THRESHOLD_LUT).convert("L")
         images.append(image)
-        image_titles.append(symbol)
+        image_titles.append(image_path.stem)
 
     if plt is not None and np is not None:
         print("Opening 4x5 gallery window for saved patterns...")
