@@ -95,10 +95,15 @@ def train_model(
 
     samples_seen = 0
     use_augmentation = model_type == "aug_fuzzy_art"
+    single_pass = model_type == "art1_single_pass"
 
-    for _ in range(epochs):
+    # Single-pass models see each pattern exactly once in a fixed order.
+    effective_epochs = 1 if single_pass else epochs
+
+    for _ in range(effective_epochs):
         labels = list(ALPHABET_A_TO_T)
-        rng.shuffle(labels)
+        if not single_pass:
+            rng.shuffle(labels)
         for label in labels:
             base_vector = base_vectors[label]
             model.train_pattern(base_vector, label, augmented=False)
@@ -128,7 +133,7 @@ def train_model(
 
     return TrainingReport(
         model_type=model_type,
-        epochs=epochs,
+        epochs=effective_epochs,
         augment_per_symbol=augment_per_symbol if use_augmentation else 0,
         samples_seen=samples_seen,
         clean_accuracy=clean_accuracy,

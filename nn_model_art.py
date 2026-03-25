@@ -13,8 +13,8 @@ from PIL import Image
 ALPHABET_A_TO_T: Tuple[str, ...] = tuple(chr(code) for code in range(ord("A"), ord("T") + 1))
 DEFAULT_PATTERN_DIR = Path("patterns_orig")
 DEFAULT_MODEL_DIR = Path("patterns_Ass4")
-ModelType = Literal["art1", "fuzzy_art", "aug_fuzzy_art"]
-MODEL_TYPES: Tuple[ModelType, ...] = ("art1", "fuzzy_art", "aug_fuzzy_art")
+ModelType = Literal["art1", "art1_single_pass", "fuzzy_art", "aug_fuzzy_art"]
+MODEL_TYPES: Tuple[ModelType, ...] = ("art1", "art1_single_pass", "fuzzy_art", "aug_fuzzy_art")
 
 
 def default_model_path(model_type: ModelType) -> Path:
@@ -294,6 +294,16 @@ class ART1CharacterModel(BaseARTCharacterModel):
         ]
 
 
+class ART1SinglePassCharacterModel(ART1CharacterModel):
+    """ART1 trained in a single pass (one epoch, no shuffle).
+
+    Because each pattern is seen only once and the order is fixed (A→T),
+    the resulting templates depend heavily on presentation order.
+    """
+
+    model_type: ModelType = "art1_single_pass"
+
+
 class FuzzyARTCharacterModel(BaseARTCharacterModel):
     model_type: ModelType = "fuzzy_art"
 
@@ -390,6 +400,8 @@ def create_model(
 ) -> BaseARTCharacterModel:
     if model_type == "art1":
         return ART1CharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
+    if model_type == "art1_single_pass":
+        return ART1SinglePassCharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
     if model_type == "fuzzy_art":
         return FuzzyARTCharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
     if model_type == "aug_fuzzy_art":
@@ -459,6 +471,8 @@ def load_model(model_path: Path) -> BaseARTCharacterModel:
     model_type = str(model_type_raw)
     if model_type == "art1":
         return ART1CharacterModel.from_dict(payload)
+    if model_type == "art1_single_pass":
+        return ART1SinglePassCharacterModel.from_dict(payload)
     if model_type == "fuzzy_art":
         return FuzzyARTCharacterModel.from_dict(payload)
     if model_type == "aug_fuzzy_art":

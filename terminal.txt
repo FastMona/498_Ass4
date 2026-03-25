@@ -1145,3 +1145,75 @@ ART Dashboard - Alphabet A to T
 9. Exit
 Choose an option (1-9): 9
 Goodbye.
+
+========================================================================
+Session exit: 2026-03-25 14:30:16
+========================================================================
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 1
+Pattern folder for manager (Enter to keep: patterns_orig): 
+
+Opening pattern manager for folder: patterns_orig
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 3
+- pattern_A.jpg
+- pattern_B.jpg
+- pattern_C.jpg
+- pattern_D.jpg
+- pattern_E.jpg
+- pattern_F.jpg
+- pattern_G.jpg
+- pattern_H.jpg
+- pattern_I.jpg
+- pattern_J.jpg
+- pattern_K.jpg
+- pattern_L.jpg
+- pattern_M.jpg
+- pattern_N.jpg
+- pattern_O.jpg
+- pattern_P.jpg
+- pattern_Q.jpg
+- pattern_R.jpg
+- pattern_S.jpg
+- pattern_T.jpg
+Opening 4x5 gallery window for saved patterns...
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 4
+Goodbye.
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 9
+Goodbye.

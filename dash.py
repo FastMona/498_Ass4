@@ -144,16 +144,19 @@ def _ask_path(prompt: str, default: Path) -> Path:
 def _select_model_types() -> Sequence[ModelType]:
     print("\nSelect model type")
     print("1. ART1")
-    print("2. Fuzzy ART")
-    print("3. Augmented Fuzzy ART")
-    print("4. All three (default)")
+    print("2. ART1 Single Pass")
+    print("3. Fuzzy ART")
+    print("4. Augmented Fuzzy ART")
+    print("5. All four (default)")
 
-    raw = input("Choose an option (1-4, default 4): ").strip() or "4"
+    raw = input("Choose an option (1-5, default 5): ").strip() or "5"
     if raw == "1":
         return ["art1"]
     if raw == "2":
-        return ["fuzzy_art"]
+        return ["art1_single_pass"]
     if raw == "3":
+        return ["fuzzy_art"]
+    if raw == "4":
         return ["aug_fuzzy_art"]
     return list(MODEL_TYPES)
 
@@ -161,21 +164,26 @@ def _select_model_types() -> Sequence[ModelType]:
 def _select_single_model_type(default: ModelType = "fuzzy_art") -> ModelType:
     print("\nSelect trained model")
     print("1. ART1")
-    print("2. Fuzzy ART")
-    print("3. Augmented Fuzzy ART")
+    print("2. ART1 Single Pass")
+    print("3. Fuzzy ART")
+    print("4. Augmented Fuzzy ART")
 
-    default_option = "2"
+    default_option = "3"
     if default == "art1":
         default_option = "1"
+    elif default == "art1_single_pass":
+        default_option = "2"
     elif default == "aug_fuzzy_art":
-        default_option = "3"
+        default_option = "4"
 
-    raw = input(f"Choose an option (1-3, default {default_option}): ").strip() or default_option
+    raw = input(f"Choose an option (1-4, default {default_option}): ").strip() or default_option
     if raw == "1":
         return "art1"
     if raw == "2":
-        return "fuzzy_art"
+        return "art1_single_pass"
     if raw == "3":
+        return "fuzzy_art"
+    if raw == "4":
         return "aug_fuzzy_art"
     return default
 
