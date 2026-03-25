@@ -31470,6 +31470,11 @@
     "P",
     "J"
   ],
+  "training_metrics": {
+    "clean_accuracy": 1.0,
+    "noisy_accuracy": 1.0,
+    "samples_seen": 4400
+  },
   "augmented_vigilance_drop": 0.08,
   "min_vigilance": 0.65
 }

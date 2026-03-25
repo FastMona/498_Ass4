@@ -2649,5 +2649,10 @@
     "R",
     "S",
     "T"
-  ]
+  ],
+  "training_metrics": {
+    "clean_accuracy": 1.0,
+    "noisy_accuracy": 0.99,
+    "samples_seen": 400
+  }
 }

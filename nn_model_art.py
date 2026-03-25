@@ -91,6 +91,7 @@ class BaseARTCharacterModel:
         self.input_size = int(input_size)
         self.templates: List[List[float]] = []
         self.template_labels: List[str] = []
+        self.training_metrics: Dict[str, object] = {}
 
     @property
     def coded_size(self) -> int:
@@ -177,7 +178,7 @@ class BaseARTCharacterModel:
         for label in self.template_labels:
             by_label[label] = by_label.get(label, 0) + 1
 
-        return {
+        summary = {
             "model_type": self.model_type,
             "vigilance": self.vigilance,
             "learning_rate": self.learning_rate,
@@ -186,6 +187,15 @@ class BaseARTCharacterModel:
             "coded_size": self.coded_size,
             "templates": len(self.templates),
             "templates_per_label": by_label,
+        }
+        summary.update(self.training_metrics)
+        return summary
+
+    def set_training_metrics(self, clean_accuracy: float, noisy_accuracy: float, samples_seen: int) -> None:
+        self.training_metrics = {
+            "clean_accuracy": float(clean_accuracy),
+            "noisy_accuracy": float(noisy_accuracy),
+            "samples_seen": int(samples_seen),
         }
 
     def to_dict(self) -> Dict[str, object]:
@@ -198,6 +208,7 @@ class BaseARTCharacterModel:
             "allowed_labels": list(self.allowed_labels),
             "templates": self.templates,
             "template_labels": self.template_labels,
+            "training_metrics": self.training_metrics,
         }
 
     @staticmethod
@@ -255,6 +266,10 @@ class BaseARTCharacterModel:
 
         model.templates = parsed_templates
         model.template_labels = parsed_labels
+
+        training_metrics = payload.get("training_metrics")
+        if isinstance(training_metrics, dict):
+            model.training_metrics = dict(training_metrics)
 
         if len(model.templates) != len(model.template_labels):
             raise ValueError("Saved model is invalid: templates and labels length mismatch")
@@ -358,6 +373,10 @@ class AugmentedFuzzyARTCharacterModel(FuzzyARTCharacterModel):
 
         model.templates = parsed_templates
         model.template_labels = parsed_labels
+
+        training_metrics = payload.get("training_metrics")
+        if isinstance(training_metrics, dict):
+            model.training_metrics = dict(training_metrics)
 
         if len(model.templates) != len(model.template_labels):
             raise ValueError("Saved model is invalid: templates and labels length mismatch")

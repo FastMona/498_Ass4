@@ -23,6 +23,8 @@ from nn_train_art import train_models
 LAST_SWEEP_LOW = 0.60
 LAST_SWEEP_HIGH = 0.95
 
+_last_paths: Dict[str, Path] = {}
+
 
 def _print_header() -> None:
     print("\n" + "=" * 72)
@@ -31,10 +33,11 @@ def _print_header() -> None:
 
 
 def _ask_path(prompt: str, default: Path) -> Path:
-    raw = input(f"{prompt} (default: {default}): ").strip()
-    if not raw:
-        return default
-    return Path(raw)
+    current = _last_paths.get(prompt, default)
+    raw = input(f"{prompt} (Enter to keep: {current}): ").strip()
+    result = Path(raw) if raw else current
+    _last_paths[prompt] = result
+    return result
 
 
 def _select_model_types() -> Sequence[ModelType]:
@@ -242,51 +245,128 @@ def create_art_models() -> None:
 
 
 def recognize_image() -> None:
-    print("\nRecognition uses a single selected model file.")
-    model_default = Path("patterns_Ass4") / default_model_path("fuzzy_art").name
-    model_path = _ask_path("Model path", model_default)
+    model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
     image_path = _ask_path("Image path to recognize", Path("patterns_orig") / "pattern_A.png")
 
-    if not model_path.exists():
-        print(f"Model file does not exist: {model_path}")
-        return
     if not image_path.exists():
         print(f"Image file does not exist: {image_path}")
         return
 
-    model = load_model(model_path)
     vector = load_vector_from_path(image_path)
-    prediction = model.predict(vector)
 
-    print("\nRecognition result")
-    print(f"Model: {model.summary()['model_type']}")
-    print(f"Predicted label: {prediction.label}")
-    print(f"Confidence (ART match): {prediction.confidence * 100:.2f}%")
+    rows: List[Tuple[str, str, str]] = []
+    for model_type in MODEL_TYPES:
+        model_path = model_dir / default_model_path(model_type).name
+        if not model_path.exists():
+            rows.append((model_type, "-", "-"))
+            continue
+        model = load_model(model_path)
+        prediction = model.predict(vector)
+        rows.append((model_type, prediction.label, f"{prediction.confidence * 100:.2f}%"))
+
+    print("\nRecognition results")
+    print(f"Image: {image_path}")
+    print(f"{'Model':<18}  {'Predicted':<10}  {'Confidence':>10}")
+    print("-" * 44)
+    for model_type, label, confidence in rows:
+        print(f"{model_type:<18}  {label:<10}  {confidence:>10}")
 
 
 def show_model_summary() -> None:
-    model_default = Path("patterns_Ass4") / default_model_path("fuzzy_art").name
-    model_path = _ask_path("Model path", model_default)
-    if not model_path.exists():
-        print(f"Model file does not exist: {model_path}")
-        return
+    model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
 
-    model = load_model(model_path)
-    summary = model.summary()
+    metric_names = ["Clean %", "Noisy %", "Samples", "Vig", "LR", "alpha", "Templates"] + list(ALPHABET_A_TO_T)
+    model_values: Dict[str, List[str]] = {}
+    for model_type in MODEL_TYPES:
+        model_path = model_dir / default_model_path(model_type).name
+        if not model_path.exists():
+            model_values[model_type] = ["-", "-", "-", "-", "-", "-", "-"] + ["-"] * len(ALPHABET_A_TO_T)
+            continue
 
-    print("\nModel summary")
-    print(f"Model type: {summary['model_type']}")
-    print(f"Vigilance: {summary['vigilance']}")
-    print(f"Learning rate: {summary['learning_rate']}")
-    print(f"Choice alpha: {summary['choice_alpha']}")
-    print(f"Templates: {summary['templates']}")
+        model = load_model(model_path)
+        summary = model.summary()
 
-    print("Templates per label:")
-    templates_per_label = summary["templates_per_label"]
-    if not isinstance(templates_per_label, dict):
-        raise ValueError("Invalid model summary format: templates_per_label is not a dictionary")
-    for label, count in templates_per_label.items():
-        print(f"  {label}: {count}")
+        vig_value = summary.get("vigilance")
+        lr_value = summary.get("learning_rate")
+        alpha_value = summary.get("choice_alpha")
+        clean_accuracy_value = summary.get("clean_accuracy")
+        noisy_accuracy_value = summary.get("noisy_accuracy")
+        samples_seen_value = summary.get("samples_seen")
+
+        clean_accuracy_text = "-"
+        if isinstance(clean_accuracy_value, (int, float, str)):
+            clean_accuracy_text = f"{float(clean_accuracy_value) * 100:.2f}%"
+
+        noisy_accuracy_text = "-"
+        if isinstance(noisy_accuracy_value, (int, float, str)):
+            noisy_accuracy_text = f"{float(noisy_accuracy_value) * 100:.2f}%"
+
+        samples_seen_text = "-"
+        if isinstance(samples_seen_value, (int, float, str)):
+            samples_seen_text = str(int(float(samples_seen_value)))
+
+        vig_text = "-"
+        if isinstance(vig_value, (int, float, str)):
+            vig_text = f"{float(vig_value):.3f}"
+
+        lr_text = "-"
+        if isinstance(lr_value, (int, float, str)):
+            lr_text = f"{float(lr_value):.3f}"
+
+        alpha_text = "-"
+        if isinstance(alpha_value, (int, float, str)):
+            alpha_text = f"{float(alpha_value):.6f}"
+
+        templates_value = summary.get("templates")
+        templates_text = "-"
+        if isinstance(templates_value, (int, float, str)):
+            templates_text = str(int(float(templates_value)))
+
+        per_label = summary.get("templates_per_label")
+        per_label_counts: List[str] = []
+        for label in ALPHABET_A_TO_T:
+            count_text = "-"
+            if isinstance(per_label, dict):
+                raw_count = per_label.get(label)
+                if isinstance(raw_count, (int, float, str)):
+                    count_text = str(int(float(raw_count)))
+            per_label_counts.append(count_text)
+
+        model_values[model_type] = [
+            clean_accuracy_text,
+            noisy_accuracy_text,
+            samples_seen_text,
+            vig_text,
+            lr_text,
+            alpha_text,
+            templates_text,
+        ] + per_label_counts
+
+    print("\n MODEL TRAINING TABLE")
+    model_headers = list(MODEL_TYPES)
+    row_header_width = max(len("Metric"), max(len(name) for name in metric_names))
+
+    col_widths: List[int] = []
+    for model_name in model_headers:
+        values = model_values.get(model_name, ["-"] * len(metric_names))
+        col_width = max(len(model_name), max(len(value) for value in values))
+        col_widths.append(col_width)
+
+    header_cells = [f"{'Metric':<{row_header_width}}"]
+    for model_name, width in zip(model_headers, col_widths):
+        header_cells.append(f"{model_name:>{width}}")
+    header_line = "  ".join(header_cells)
+    print("=" * len(header_line))
+    print(header_line)
+    print("=" * len(header_line))
+
+    for index, metric_name in enumerate(metric_names):
+        row_cells = [f"{metric_name:<{row_header_width}}"]
+        for model_name, width in zip(model_headers, col_widths):
+            values = model_values.get(model_name, ["-"] * len(metric_names))
+            row_cells.append(f"{values[index]:>{width}}")
+        print("  ".join(row_cells))
+    print("=" * len(header_line))
 
 
 def main() -> None:

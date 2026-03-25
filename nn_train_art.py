@@ -119,6 +119,11 @@ def train_model(
     clean_accuracy = _evaluate(model, clean_eval)
     noisy_accuracy = _evaluate(model, noisy_eval)
 
+    model.set_training_metrics(
+        clean_accuracy=clean_accuracy,
+        noisy_accuracy=noisy_accuracy,
+        samples_seen=samples_seen,
+    )
     model.save(model_path)
 
     return TrainingReport(
