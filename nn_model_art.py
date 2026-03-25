@@ -1,4 +1,4 @@
-"""ART model utilities for 8x8 alphabet recognition (A-T)."""
+"""Provide reusable ART model components for the assignment pipeline."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _clip01(value: float) -> float:
 
 
 def load_pattern_vector(image_path: Path, expected_size: Tuple[int, int] = (8, 8)) -> List[float]:
-    """Load and flatten a pattern image as a binary vector of length 64."""
+    """Standardize an image into the binary vector format expected by all models."""
     image = Image.open(image_path).convert("L")
     if image.size != expected_size:
         image = image.resize(expected_size, Image.Resampling.NEAREST)
@@ -48,11 +48,9 @@ def discover_pattern_images(pattern_dir: Path) -> Dict[str, Path]:
         return mapping
 
     for label in ALPHABET_A_TO_T:
-        for extension in (".png", ".jpg", ".jpeg"):
-            matches = list(pattern_dir.glob(f"*_{label}{extension}"))
-            if matches:
-                mapping[label] = matches[0]
-                break
+        matches = list(pattern_dir.glob(f"*_{label}.jpg"))
+        if matches:
+            mapping[label] = matches[0]
 
     return mapping
 
@@ -72,7 +70,7 @@ class Prediction:
 
 
 class BaseARTCharacterModel:
-    """Base class for ART-family character models."""
+    """Centralize shared ART behavior so training and inference stay consistent."""
 
     model_type: ModelType = "fuzzy_art"
 

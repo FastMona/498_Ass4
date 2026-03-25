@@ -1,4 +1,4 @@
-"""Training workflow for ART1, Fuzzy ART, and Augmented Fuzzy ART."""
+"""Train and evaluate ART variants with one shared workflow."""
 
 from __future__ import annotations
 

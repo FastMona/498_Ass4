@@ -1,4 +1,4 @@
-"""Dashboard for comparing ART-family models on A-T recognition."""
+"""Run the assignment workflow from one menu-driven dashboard."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _is_valid_path_text(value: str) -> bool:
         return False
     if "Operation failed:" in value:
         return False
-    # Reject control characters such as Ctrl+Z captured from terminal input.
+    # Guard against terminal control bytes being treated as file paths.
     for char in value:
         if ord(char) < 32 and char not in ("\t",):
             return False
@@ -62,7 +62,7 @@ def _load_path_memory() -> None:
             if changed:
                 _save_path_memory()
     except Exception:
-        # Ignore malformed memory and continue with in-session defaults.
+        # Keep startup resilient when saved path memory is invalid.
         pass
 
 
@@ -270,7 +270,7 @@ def vigilance_sweep() -> None:
         clean_acc, clean_cov = _score_at_vigilance(model, clean_samples, level)
         noisy_acc, noisy_cov = _score_at_vigilance(model, noisy_samples, level)
 
-        # Overall accuracy computed over accepted clean+noisy samples.
+        # Report one combined metric so sweep levels are easier to compare.
         combined_samples: Dict[str, List[List[float]]] = {}
         for label in ALPHABET_A_TO_T:
             combined_samples[label] = clean_samples[label] + noisy_samples[label]
@@ -310,7 +310,7 @@ def vigilance_sweep() -> None:
 def manage_patterns() -> None:
     selected_folder = _ask_path("Pattern folder for manager", Path("patterns_orig"))
 
-    # Configure patterns.py defaults so its menu operations target the selected folder.
+    # Reuse patterns.py without duplicating its menu logic.
     pattern_manager.DEFAULT_OUTPUT_DIR = str(selected_folder).replace("\\", "/")
     pattern_manager.PATTERN_DB = pattern_manager.BASE_DIR / pattern_manager.DEFAULT_OUTPUT_DIR / "patterns"
 
@@ -414,7 +414,7 @@ def recognize_folder() -> None:
 
     labels_found = sorted(image_map.keys())
 
-    # Load all three models once.
+    # Load each model once to keep batch evaluation responsive.
     models = {}
     for model_type in MODEL_TYPES:
         model_path = model_dir / default_model_path(model_type).name
@@ -425,10 +425,10 @@ def recognize_folder() -> None:
         print(f"No model files found in '{model_dir}'.")
         return
 
-    # Collect all cell values first to compute column widths.
+    # Build table content first so column widths fit every value.
     correct_counts: Dict[str, int] = {mt: 0 for mt in MODEL_TYPES}
     per_label_hits: Dict[str, int] = {}
-    predictions: Dict[str, Dict[str, str]] = {}  # label -> model_type -> cell text
+    predictions: Dict[str, Dict[str, str]] = {}
     for label in labels_found:
         vector = load_pattern_vector(image_map[label])
         predictions[label] = {}
@@ -454,7 +454,7 @@ def recognize_folder() -> None:
         else:
             acc_cells[model_type] = "N/A"
 
-    # Dynamic column widths.
+    # Widths adapt to confidence strings and summary values.
     star_cells = {label: "*" * per_label_hits[label] for label in labels_found}
     label_col_w = max(len("Label"), len("Acc"))
     star_col_w = max(len("*"), max((len(star_cells[label]) for label in labels_found), default=0))

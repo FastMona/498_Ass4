@@ -63,7 +63,7 @@ def build_8x8_pattern(symbol: str) -> Image.Image:
     canvas = Image.new("L", (64, 64), 255)
     draw = ImageDraw.Draw(canvas)
 
-    # Render large first, then downsample to 8x8 for a crisp bitmap pattern.
+    # Start from a larger glyph to preserve legibility after 8x8 quantization.
     try:
         font = ImageFont.truetype("arial.ttf", 54)
     except OSError:
@@ -81,7 +81,7 @@ def build_8x8_pattern(symbol: str) -> Image.Image:
 
     pixels = bw.load()
     if pixels is not None:
-        # Ensure every row/column has at least one black pixel.
+        # Avoid empty rows/columns that make symbols ambiguous.
         for y in range(8):
             if all(pixels[x, y] == 255 for x in range(8)):
                 pixels[3, y] = 0
@@ -182,7 +182,7 @@ def show_pattern_in_figure(image_path: Path, symbol: str) -> None:
         return
 
     image = Image.open(image_path).convert("L")
-    # Re-threshold before display to keep strict black/white rendering.
+    # Re-apply threshold so previews match training-time binary pixels.
     image = image.point(THRESHOLD_LUT).convert("L")
 
     if plt is not None and np is not None:
@@ -193,7 +193,7 @@ def show_pattern_in_figure(image_path: Path, symbol: str) -> None:
     root = tk.Tk()
     root.title(f"Pattern {symbol} (Tkinter)")
     photo = tk.PhotoImage(master=root, width=320, height=320)
-    # Build a strict black/white preview by painting each scaled pixel block.
+    # Paint exact pixel blocks so Tk fallback mirrors the 8x8 bitmap.
     pixels = enlarged.load()
     if pixels is None:
         print("Unable to read pixel data for display.")
@@ -275,7 +275,7 @@ def edit_pattern(patterns: Dict[str, Dict[str, Any]]) -> None:
 
 def view_pattern(patterns: Dict[str, Dict[str, Any]]) -> None:
     orig_dir = BASE_DIR / DEFAULT_OUTPUT_DIR
-    # Show every JPG image in the selected folder, regardless of naming convention.
+    # Surface all saved JPG patterns, including manually added files.
     supported_exts = (".jpg",)
     image_candidates = list(orig_dir.glob("*"))
     image_files = sorted(
