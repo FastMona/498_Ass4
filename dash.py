@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 import patterns as pattern_manager
+from noise import run_create_noisy_patterns
 from nn_model_art import (
     ALPHABET_A_TO_T,
     MODEL_TYPES,
@@ -594,7 +595,7 @@ def main() -> None:
         print("4. Recognize a character image")
         print("5. Recognize a folder (batch of images)")
         print("6. Show model summary")
-        print("7. (not implemented)")
+        print("7. Noisy patterns")
         print("8. (not implemented)")
         print("9. Exit")
 
@@ -613,7 +614,9 @@ def main() -> None:
                 recognize_folder()
             elif choice == "6":
                 show_model_summary()
-            elif choice in ("7", "8"):
+            elif choice == "7":
+                run_create_noisy_patterns()
+            elif choice == "8":
                 print("Not implemented yet.")
             elif choice == "9":
                 print("Goodbye.")

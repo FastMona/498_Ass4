@@ -1,5 +1,7 @@
 {
   "Model directory": "patterns_Ass4",
-  "Image folder to recognize": "patterns_alt",
-  "Image path to recognize": "patterns_orig\\pattern_B.jpg"
+  "Image folder to recognize": "patterns_noisy",
+  "Image path to recognize": "patterns_orig\\pattern_B.jpg",
+  "Pattern folder for manager": "patterns_orig",
+  "Pattern directory": "patterns_alt"
 }

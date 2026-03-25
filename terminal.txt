@@ -612,3 +612,536 @@ ART Dashboard - Alphabet A to T
 9. Exit
 Choose an option (1-9): 9
 Goodbye.
+
+========================================================================
+Session exit: 2026-03-25 13:33:52
+========================================================================
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. (not implemented)
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 9
+Goodbye.
+
+========================================================================
+Session exit: 2026-03-25 13:50:46
+========================================================================
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 1
+Pattern folder for manager (Enter to keep: patterns_alt): patterns_orig
+
+Opening pattern manager for folder: patterns_orig
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 3
+- pattern_A.jpg
+- pattern_B.jpg
+- pattern_C.jpg
+- pattern_D.jpg
+- pattern_E.jpg
+- pattern_F.jpg
+- pattern_G.jpg
+- pattern_H.jpg
+- pattern_I.jpg
+- pattern_J.jpg
+- pattern_K.jpg
+- pattern_L.jpg
+- pattern_M.jpg
+- pattern_N.jpg
+- pattern_O.jpg
+- pattern_P.jpg
+- pattern_Q.jpg
+- pattern_R.jpg
+- pattern_S.jpg
+- pattern_T.jpg
+Opening 4x5 gallery window for saved patterns...
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 4
+Goodbye.
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 2
+Pattern directory (Enter to keep: patterns_alt): patterns_orig
+Model directory (Enter to keep: patterns_Ass4): 
+
+Select model type
+1. ART1
+2. Fuzzy ART
+3. Augmented Fuzzy ART
+4. All three (default)
+Choose an option (1-4, default 4): 
+Vigilance 0-1 (default 0.82): 
+Learning rate 0-1 (default 0.6): 
+Choice alpha (default 0.001): 
+Epochs (default 20): 
+Augmentations per symbol per epoch (default 10): 
+Bit flips per augmentation (default 2): 
+
+Note: augmentation is applied only to aug_fuzzy_art.
+
+Create + train complete
+Model           Clean      Noisy      Samples
+------------------------------------------------
+aug_fuzzy_art 100.00%   100.00%   4400
+Saved: patterns_Ass4\aug_fuzzy_art_a_to_t.json
+fuzzy_art     100.00%    99.00%   400
+Saved: patterns_Ass4\fuzzy_art_a_to_t.json
+art1          100.00%    77.00%   400
+Saved: patterns_Ass4\art1_a_to_t.json
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 7
+Enter percent noise (0-100): 15
+Folder to noisify [patterns_orig]: 
+Created: 15n_pattern_A.jpg
+Created: 15n_pattern_B.jpg
+Created: 15n_pattern_C.jpg
+Created: 15n_pattern_D.jpg
+Created: 15n_pattern_E.jpg
+Created: 15n_pattern_F.jpg
+Created: 15n_pattern_G.jpg
+Created: 15n_pattern_H.jpg
+Created: 15n_pattern_I.jpg
+Created: 15n_pattern_J.jpg
+Created: 15n_pattern_K.jpg
+Created: 15n_pattern_L.jpg
+Created: 15n_pattern_M.jpg
+Created: 15n_pattern_N.jpg
+Created: 15n_pattern_O.jpg
+Created: 15n_pattern_P.jpg
+Created: 15n_pattern_Q.jpg
+Created: 15n_pattern_R.jpg
+Created: 15n_pattern_S.jpg
+Created: 15n_pattern_T.jpg
+Noisy pattern generation complete: 20 file(s) in C:\Users\fastm\Documents_local\Repositories_local\Python_stuff\498_Ass4\498_Ass4\patterns_noisy
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 7
+Enter percent noise (0-100): 15
+Folder to noisify [patterns_orig]: 
+Deleted 20 existing image file(s) from patterns_noisy.
+Created: 15n_pattern_A.jpg
+Created: 15n_pattern_B.jpg
+Created: 15n_pattern_C.jpg
+Created: 15n_pattern_D.jpg
+Created: 15n_pattern_E.jpg
+Created: 15n_pattern_F.jpg
+Created: 15n_pattern_G.jpg
+Created: 15n_pattern_H.jpg
+Created: 15n_pattern_I.jpg
+Created: 15n_pattern_J.jpg
+Created: 15n_pattern_K.jpg
+Created: 15n_pattern_L.jpg
+Created: 15n_pattern_M.jpg
+Created: 15n_pattern_N.jpg
+Created: 15n_pattern_O.jpg
+Created: 15n_pattern_P.jpg
+Created: 15n_pattern_Q.jpg
+Created: 15n_pattern_R.jpg
+Created: 15n_pattern_S.jpg
+Created: 15n_pattern_T.jpg
+Noisy pattern generation complete: 20 file(s) in C:\Users\fastm\Documents_local\Repositories_local\Python_stuff\498_Ass4\498_Ass4\patterns_noisy
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 5
+Model directory (Enter to keep: patterns_Ass4): 
+Image folder to recognize (Enter to keep: patterns_orig): patterns_noisy
+
+=========================================================
+ BATCH RECOGNITION RESULTS
+ Training: patterns_Ass4
+ Recog:    patterns_noisy
+=========================================================
+Label  *             art1       fuzzy_art   aug_fuzzy_art
+=========================================================
+A      **       H (85.7%)       A (84.4%)       A (67.9%)
+B      **       L (54.3%)       B (84.4%)       B (65.3%)
+C      **       L (64.3%)       C (84.4%)       C (65.4%)
+D      ***      D (90.0%)       D (84.4%)       D (65.1%)
+E      **       L (56.8%)       E (84.4%)       E (65.2%)
+F      ***      F (96.9%)       F (84.4%)       F (65.1%)
+G      **       C (79.5%)       G (84.4%)       G (65.7%)
+H      ***      H (94.1%)       H (84.4%)       H (65.5%)
+I      **       T (63.2%)       I (84.4%)       I (64.1%)
+J      **       T (69.4%)       J (84.4%)       J (66.3%)
+K      ***      K (87.5%)       K (84.4%)       K (63.4%)
+L      ***      L (82.1%)       L (84.4%)       L (65.1%)
+M      ***      M (92.5%)       M (84.4%)       M (64.7%)
+N      ***      N (87.5%)       N (84.4%)       N (65.0%)
+O      **       D (87.5%)       O (84.4%)       O (66.6%)
+P      ***      P (88.1%)       P (84.4%)       P (66.4%)
+Q      **       C (72.3%)       Q (84.4%)       Q (65.5%)
+R      **       F (80.0%)       R (84.4%)       R (65.8%)
+S      ***      S (95.7%)       S (84.4%)       S (66.0%)
+T      ***      T (80.0%)       T (84.4%)       T (64.7%)
+=========================================================
+Acc         10/20 (50.0%)  20/20 (100.0%)  20/20 (100.0%)
+=========================================================
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 1
+Pattern folder for manager (Enter to keep: patterns_orig): patterns_alt
+
+Opening pattern manager for folder: patterns_alt
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 3
+- alt_pattern_A.jpg
+- alt_pattern_B.jpg
+- alt_pattern_C.jpg
+- alt_pattern_D.jpg
+- alt_pattern_E.jpg
+- alt_pattern_F.jpg
+- alt_pattern_G.jpg
+- alt_pattern_H.jpg
+- alt_pattern_I.jpg
+- alt_pattern_J.jpg
+- alt_pattern_K.jpg
+- alt_pattern_L.jpg
+- alt_pattern_M.jpg
+- alt_pattern_N.jpg
+- alt_pattern_O.jpg
+- alt_pattern_P.jpg
+- alt_pattern_Q.jpg
+- alt_pattern_R.jpg
+- alt_pattern_S.jpg
+- alt_pattern_T.jpg
+Opening 4x5 gallery window for saved patterns...
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 4
+Goodbye.
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 2
+Pattern directory (Enter to keep: patterns_orig): patterns_alt
+Model directory (Enter to keep: patterns_Ass4): 
+
+Select model type
+1. ART1
+2. Fuzzy ART
+3. Augmented Fuzzy ART
+4. All three (default)
+Choose an option (1-4, default 4): 
+Vigilance 0-1 (default 0.82): 
+Learning rate 0-1 (default 0.6): 
+Choice alpha (default 0.001): 
+Epochs (default 20): 
+Augmentations per symbol per epoch (default 10): 
+Bit flips per augmentation (default 2): 
+
+Note: augmentation is applied only to aug_fuzzy_art.
+
+Create + train complete
+Model           Clean      Noisy      Samples
+------------------------------------------------
+fuzzy_art     100.00%    99.00%   400
+Saved: patterns_Ass4\fuzzy_art_a_to_t.json
+aug_fuzzy_art 100.00%    98.00%   4400
+Saved: patterns_Ass4\aug_fuzzy_art_a_to_t.json
+art1          100.00%    91.50%   400
+Saved: patterns_Ass4\art1_a_to_t.json
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 5
+Model directory (Enter to keep: patterns_Ass4): 
+Image folder to recognize (Enter to keep: patterns_noisy): patterns_alt
+
+==========================================================
+ BATCH RECOGNITION RESULTS
+ Training: patterns_Ass4
+ Recog:    patterns_alt
+==========================================================
+Label  *              art1       fuzzy_art   aug_fuzzy_art
+==========================================================
+A      ***      A (100.0%)      A (100.0%)       A (76.6%)
+B      ***      B (100.0%)      B (100.0%)       B (90.1%)
+C      ***      C (100.0%)      C (100.0%)       C (79.0%)
+D      ***      D (100.0%)      D (100.0%)       D (86.1%)
+E      ***      E (100.0%)      E (100.0%)       E (75.3%)
+F      ***      F (100.0%)      F (100.0%)       F (75.5%)
+G      ***      G (100.0%)      G (100.0%)       G (78.4%)
+H      ***      H (100.0%)      H (100.0%)       H (74.9%)
+I      ***      I (100.0%)      I (100.0%)       I (90.6%)
+J      ***      J (100.0%)      J (100.0%)       J (94.4%)
+K      ***      K (100.0%)      K (100.0%)       K (93.1%)
+L      ***      L (100.0%)      L (100.0%)       L (79.1%)
+M      ***      M (100.0%)      M (100.0%)       M (74.8%)
+N      ***      N (100.0%)      N (100.0%)       N (76.2%)
+O      ***      O (100.0%)      O (100.0%)       O (76.2%)
+P      ***      P (100.0%)      P (100.0%)       P (91.2%)
+Q      ***      Q (100.0%)      Q (100.0%)       Q (74.7%)
+R      ***      R (100.0%)      R (100.0%)       R (75.5%)
+S      ***      S (100.0%)      S (100.0%)       S (94.9%)
+T      ***      T (100.0%)      T (100.0%)       T (91.7%)
+==========================================================
+Acc         20/20 (100.0%)  20/20 (100.0%)  20/20 (100.0%)
+==========================================================
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 7
+Enter percent noise (0-100): 15
+Folder to noisify [patterns_orig]: patterns_alt
+Deleted 20 existing image file(s) from patterns_noisy.
+Created: 15n_alt_pattern_A.jpg
+Created: 15n_alt_pattern_B.jpg
+Created: 15n_alt_pattern_C.jpg
+Created: 15n_alt_pattern_D.jpg
+Created: 15n_alt_pattern_E.jpg
+Created: 15n_alt_pattern_F.jpg
+Created: 15n_alt_pattern_G.jpg
+Created: 15n_alt_pattern_H.jpg
+Created: 15n_alt_pattern_I.jpg
+Created: 15n_alt_pattern_J.jpg
+Created: 15n_alt_pattern_K.jpg
+Created: 15n_alt_pattern_L.jpg
+Created: 15n_alt_pattern_M.jpg
+Created: 15n_alt_pattern_N.jpg
+Created: 15n_alt_pattern_O.jpg
+Created: 15n_alt_pattern_P.jpg
+Created: 15n_alt_pattern_Q.jpg
+Created: 15n_alt_pattern_R.jpg
+Created: 15n_alt_pattern_S.jpg
+Created: 15n_alt_pattern_T.jpg
+Noisy pattern generation complete: 20 file(s) in C:\Users\fastm\Documents_local\Repositories_local\Python_stuff\498_Ass4\498_Ass4\patterns_noisy
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 5
+Model directory (Enter to keep: patterns_Ass4): 
+Image folder to recognize (Enter to keep: patterns_alt): patterns_noisy
+
+=======================================================
+ BATCH RECOGNITION RESULTS
+ Training: patterns_Ass4
+ Recog:    patterns_noisy
+=======================================================
+Label  *             art1      fuzzy_art  aug_fuzzy_art
+=======================================================
+A      ***      A (75.0%)      A (84.4%)      A (66.4%)
+B      **       P (56.4%)      B (84.4%)      B (66.1%)
+C      ***      C (78.6%)      C (84.4%)      C (66.4%)
+D      ***      D (84.6%)      D (84.4%)      D (74.6%)
+E      **       F (63.6%)      E (84.4%)      E (64.9%)
+F      ***      F (71.4%)      F (84.4%)      F (64.0%)
+G               C (76.7%)      C (84.4%)      C (67.3%)
+H      ***      H (73.1%)      H (84.4%)      H (70.2%)
+I      ***      I (75.0%)      I (84.4%)      I (65.0%)
+J      ***      J (75.0%)      J (84.4%)      J (65.6%)
+K      ***      K (80.8%)      K (84.4%)      K (67.1%)
+L      ***      L (64.7%)      L (84.4%)      L (64.3%)
+M      ***      M (80.0%)      M (84.4%)      M (65.1%)
+N      *        M (82.1%)      M (84.4%)      N (65.7%)
+O      ***      O (84.6%)      O (84.4%)      O (67.1%)
+P      ***      P (79.2%)      P (84.4%)      P (66.7%)
+Q      ***      Q (81.8%)      Q (84.4%)      Q (64.9%)
+R      ***      R (81.8%)      R (84.4%)      R (65.6%)
+S      ***      S (78.9%)      S (84.4%)      S (64.7%)
+T      ***      T (73.1%)      T (84.4%)      T (64.7%)
+=======================================================
+Acc         16/20 (80.0%)  18/20 (90.0%)  19/20 (95.0%)
+=======================================================
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 1
+Pattern folder for manager (Enter to keep: patterns_alt): patterns_orig
+
+Opening pattern manager for folder: patterns_orig
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 3
+- pattern_A.jpg
+- pattern_B.jpg
+- pattern_C.jpg
+- pattern_D.jpg
+- pattern_E.jpg
+- pattern_F.jpg
+- pattern_G.jpg
+- pattern_H.jpg
+- pattern_I.jpg
+- pattern_J.jpg
+- pattern_K.jpg
+- pattern_L.jpg
+- pattern_M.jpg
+- pattern_N.jpg
+- pattern_O.jpg
+- pattern_P.jpg
+- pattern_Q.jpg
+- pattern_R.jpg
+- pattern_S.jpg
+- pattern_T.jpg
+Opening 4x5 gallery window for saved patterns...
+
+Pattern Manager
+1. Create pattern
+2. Edit pattern
+3. View pattern
+4. Exit
+Choose an option (1-4): 4
+Goodbye.
+
+========================================================================
+ART Dashboard - Alphabet A to T
+========================================================================
+1. Manage patterns (patterns.py)
+2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)
+3. Sweep vigilance on one trained model
+4. Recognize a character image
+5. Recognize a folder (batch of images)
+6. Show model summary
+7. Noisy patterns
+8. (not implemented)
+9. Exit
+Choose an option (1-9): 9
+Goodbye.
