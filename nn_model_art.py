@@ -49,9 +49,9 @@ def discover_pattern_images(pattern_dir: Path) -> Dict[str, Path]:
 
     for label in ALPHABET_A_TO_T:
         for extension in (".png", ".jpg", ".jpeg"):
-            candidate = pattern_dir / f"pattern_{label}{extension}"
-            if candidate.exists():
-                mapping[label] = candidate
+            matches = list(pattern_dir.glob(f"*_{label}{extension}"))
+            if matches:
+                mapping[label] = matches[0]
                 break
 
     return mapping

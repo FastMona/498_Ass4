@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import builtins
+import io
+import json
 import random
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -24,6 +29,96 @@ LAST_SWEEP_LOW = 0.60
 LAST_SWEEP_HIGH = 0.95
 
 _last_paths: Dict[str, Path] = {}
+_path_memory_file = Path("path_memory.json")
+
+
+def _is_valid_path_text(value: str) -> bool:
+    if not value:
+        return False
+    if "Operation failed:" in value:
+        return False
+    # Reject control characters such as Ctrl+Z captured from terminal input.
+    for char in value:
+        if ord(char) < 32 and char not in ("\t",):
+            return False
+    return True
+
+
+def _load_path_memory() -> None:
+    global _last_paths
+    if not _path_memory_file.exists():
+        return
+    try:
+        raw = json.loads(_path_memory_file.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            loaded: Dict[str, Path] = {}
+            changed = False
+            for key, value in raw.items():
+                if isinstance(key, str) and isinstance(value, str) and _is_valid_path_text(value):
+                    loaded[key] = Path(value)
+                else:
+                    changed = True
+            _last_paths = loaded
+            if changed:
+                _save_path_memory()
+    except Exception:
+        # Ignore malformed memory and continue with in-session defaults.
+        pass
+
+
+def _save_path_memory() -> None:
+    payload = {key: str(value) for key, value in _last_paths.items()}
+    _path_memory_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+class _TeeStream:
+    def __init__(self, *streams) -> None:
+        self.streams = streams
+
+    def write(self, data: str) -> int:
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
+
+
+def _install_terminal_capture() -> Tuple[io.StringIO, object, object, object]:
+    capture = io.StringIO()
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    original_input = builtins.input
+
+    sys.stdout = _TeeStream(sys.stdout, capture)
+    sys.stderr = _TeeStream(sys.stderr, capture)
+
+    def _logged_input(prompt: str = "") -> str:
+        response = original_input(prompt)
+        capture.write(f"{response}\n")
+        return response
+
+    builtins.input = _logged_input
+    return capture, original_stdout, original_stderr, original_input
+
+
+def _append_terminal_capture(capture_text: str) -> None:
+    log_path = Path("terminal.txt")
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write(f"\n{'=' * 72}\n")
+        log_file.write(f"Session exit: {stamp}\n")
+        log_file.write(f"{'=' * 72}\n")
+        log_file.write(capture_text)
+        if not capture_text.endswith("\n"):
+            log_file.write("\n")
+
+
+def _uninstall_terminal_capture(original_stdout, original_stderr, original_input) -> None:
+    sys.stdout = original_stdout
+    sys.stderr = original_stderr
+    builtins.input = original_input
 
 
 def _print_header() -> None:
@@ -35,8 +130,13 @@ def _print_header() -> None:
 def _ask_path(prompt: str, default: Path) -> Path:
     current = _last_paths.get(prompt, default)
     raw = input(f"{prompt} (Enter to keep: {current}): ").strip()
-    result = Path(raw) if raw else current
+    if raw and not _is_valid_path_text(raw):
+        print("Invalid path input detected; keeping current value.")
+        result = current
+    else:
+        result = Path(raw) if raw else current
     _last_paths[prompt] = result
+    _save_path_memory()
     return result
 
 
@@ -165,16 +265,10 @@ def vigilance_sweep() -> None:
     step = (high - low) / 9.0 if high != low else 0.0
     levels = [low + step * idx for idx in range(10)]
 
-    print("\nModel type:", model.summary()["model_type"])
-    print("Vigilance sweep results (10 levels)")
-    print("Level  Vigilance  CleanAcc  NoisyAcc  OverallAcc  Coverage")
-    print("-------------------------------------------------------------")
-
+    rows: List[Dict[str, str]] = []
     for idx, level in enumerate(levels, start=1):
         clean_acc, clean_cov = _score_at_vigilance(model, clean_samples, level)
         noisy_acc, noisy_cov = _score_at_vigilance(model, noisy_samples, level)
-
-        total_cov = (clean_cov + noisy_cov) / 2.0
 
         # Overall accuracy computed over accepted clean+noisy samples.
         combined_samples: Dict[str, List[List[float]]] = {}
@@ -182,13 +276,35 @@ def vigilance_sweep() -> None:
             combined_samples[label] = clean_samples[label] + noisy_samples[label]
         overall_acc, _ = _score_at_vigilance(model, combined_samples, level)
 
-        print(
-            f"{idx:>2}     {level:>7.3f}   "
-            f"{clean_acc * 100:>7.2f}%  "
-            f"{noisy_acc * 100:>7.2f}%  "
-            f"{overall_acc * 100:>9.2f}%  "
-            f"{total_cov * 100:>7.2f}%"
+        rows.append(
+            {
+                "Level": str(idx),
+                "Vigilance": f"{level:.3f}",
+                "CleanAcc": f"{clean_acc * 100:.2f}%",
+                "NoisyAcc": f"{noisy_acc * 100:.2f}%",
+                "OverallAcc": f"{overall_acc * 100:.2f}%",
+                "CleanCov": f"{clean_cov * 100:.2f}%",
+                "NoisyCov": f"{noisy_cov * 100:.2f}%",
+            }
         )
+
+    columns = ["Level", "Vigilance", "CleanAcc", "NoisyAcc", "OverallAcc", "CleanCov", "NoisyCov"]
+    col_widths: Dict[str, int] = {}
+    for col in columns:
+        col_widths[col] = max(len(col), max(len(row[col]) for row in rows))
+
+    header_line = "  ".join(f"{col:>{col_widths[col]}}" for col in columns)
+    rule = "=" * len(header_line)
+
+    print("\n VIGILANCE SWEEP RESULTS")
+    print(f" Model:  {model.summary()['model_type']}")
+    print(f" Levels: {len(levels)}")
+    print(rule)
+    print(header_line)
+    print(rule)
+    for row in rows:
+        print("  ".join(f"{row[col]:>{col_widths[col]}}" for col in columns))
+    print(rule)
 
 
 def manage_patterns() -> None:
@@ -246,7 +362,7 @@ def create_art_models() -> None:
 
 def recognize_image() -> None:
     model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
-    image_path = _ask_path("Image path to recognize", Path("patterns_orig") / "pattern_A.png")
+    image_path = _ask_path("Image path to recognize", Path("patterns_orig") / "pattern_A.jpg")
 
     if not image_path.exists():
         print(f"Image file does not exist: {image_path}")
@@ -264,12 +380,112 @@ def recognize_image() -> None:
         prediction = model.predict(vector)
         rows.append((model_type, prediction.label, f"{prediction.confidence * 100:.2f}%"))
 
-    print("\nRecognition results")
-    print(f"Image: {image_path}")
-    print(f"{'Model':<18}  {'Predicted':<10}  {'Confidence':>10}")
-    print("-" * 44)
+    model_col_w = max(len("Model"), max(len(r[0]) for r in rows))
+    pred_col_w = max(len("Predicted"), max(len(r[1]) for r in rows))
+    conf_col_w = max(len("Confidence"), max(len(r[2]) for r in rows))
+
+    header_line = (
+        f"{'Model':<{model_col_w}}  "
+        f"{'Predicted':<{pred_col_w}}  "
+        f"{'Confidence':>{conf_col_w}}"
+    )
+    rule = "=" * len(header_line)
+
+    print(f"\n{rule}")
+    print(" SINGLE CHAR RECOG RESULTS")
+    print(f" Model dir: {model_dir}")
+    print(f" Image:     {image_path}")
+    print(rule)
+    print(header_line)
+    print(rule)
     for model_type, label, confidence in rows:
-        print(f"{model_type:<18}  {label:<10}  {confidence:>10}")
+        print(f"{model_type:<{model_col_w}}  {label:<{pred_col_w}}  {confidence:>{conf_col_w}}")
+    print(rule)
+
+
+def recognize_folder() -> None:
+    model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
+    image_dir = _ask_path("Image folder to recognize", Path("patterns_orig"))
+
+    image_map = discover_pattern_images(image_dir)
+    if not image_map:
+        print(f"No pattern images found in '{image_dir}'.")
+        return
+
+    labels_found = sorted(image_map.keys())
+
+    # Load all three models once.
+    models = {}
+    for model_type in MODEL_TYPES:
+        model_path = model_dir / default_model_path(model_type).name
+        if model_path.exists():
+            models[model_type] = load_model(model_path)
+
+    if not models:
+        print(f"No model files found in '{model_dir}'.")
+        return
+
+    # Collect all cell values first to compute column widths.
+    correct_counts: Dict[str, int] = {mt: 0 for mt in MODEL_TYPES}
+    per_label_hits: Dict[str, int] = {}
+    predictions: Dict[str, Dict[str, str]] = {}  # label -> model_type -> cell text
+    for label in labels_found:
+        vector = load_pattern_vector(image_map[label])
+        predictions[label] = {}
+        label_hits = 0
+        for model_type in MODEL_TYPES:
+            if model_type not in models:
+                predictions[label][model_type] = "N/A"
+            else:
+                pred = models[model_type].predict(vector)
+                cell = f"{pred.label} ({pred.confidence * 100:.1f}%)"
+                if pred.label == label:
+                    correct_counts[model_type] += 1
+                    label_hits += 1
+                predictions[label][model_type] = cell
+        per_label_hits[label] = label_hits
+
+    total = len(labels_found)
+
+    acc_cells: Dict[str, str] = {}
+    for model_type in MODEL_TYPES:
+        if model_type in models and total:
+            acc_cells[model_type] = f"{correct_counts[model_type]}/{total} ({correct_counts[model_type] / total * 100:.1f}%)"
+        else:
+            acc_cells[model_type] = "N/A"
+
+    # Dynamic column widths.
+    star_cells = {label: "*" * per_label_hits[label] for label in labels_found}
+    label_col_w = max(len("Label"), len("Acc"))
+    star_col_w = max(len("*"), max((len(star_cells[label]) for label in labels_found), default=0))
+    col_widths: Dict[str, int] = {}
+    for model_type in MODEL_TYPES:
+        all_vals = [predictions[lbl][model_type] for lbl in labels_found] + [acc_cells[model_type]]
+        col_widths[model_type] = max(len(model_type), max(len(v) for v in all_vals))
+
+    def _build_row(left: str, stars: str, cells: Dict[str, str]) -> str:
+        parts = [f"{left:<{label_col_w}}", f"{stars:<{star_col_w}}"]
+        for mt in MODEL_TYPES:
+            parts.append(f"{cells[mt]:>{col_widths[mt]}}")
+        return "  ".join(parts)
+
+    header_line = _build_row("Label", "*", {mt: mt for mt in MODEL_TYPES})
+    rule = "=" * len(header_line)
+
+    print(f"\n{rule}")
+    print(" BATCH RECOGNITION RESULTS")
+    print(f" Training: {model_dir}")
+    print(f" Recog:    {image_dir}")
+    print(rule)
+    print(header_line)
+    print(rule)
+
+    for label in labels_found:
+        print(_build_row(label, star_cells[label], predictions[label]))
+
+    print(rule)
+    print(_build_row("Acc", "", acc_cells))
+    print(rule)
 
 
 def show_model_summary() -> None:
@@ -376,10 +592,13 @@ def main() -> None:
         print("2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)")
         print("3. Sweep vigilance on one trained model")
         print("4. Recognize a character image")
-        print("5. Show model summary")
-        print("6. Exit")
+        print("5. Recognize a folder (batch of images)")
+        print("6. Show model summary")
+        print("7. (not implemented)")
+        print("8. (not implemented)")
+        print("9. Exit")
 
-        choice = input("Choose an option (1-6): ").strip()
+        choice = input("Choose an option (1-9): ").strip()
 
         try:
             if choice == "1":
@@ -391,15 +610,25 @@ def main() -> None:
             elif choice == "4":
                 recognize_image()
             elif choice == "5":
-                show_model_summary()
+                recognize_folder()
             elif choice == "6":
+                show_model_summary()
+            elif choice in ("7", "8"):
+                print("Not implemented yet.")
+            elif choice == "9":
                 print("Goodbye.")
                 break
             else:
-                print("Invalid choice. Enter 1, 2, 3, 4, 5, or 6.")
+                print("Invalid choice. Enter 1-9.")
         except Exception as exc:
             print(f"Operation failed: {exc}")
 
 
 if __name__ == "__main__":
-    main()
+    _load_path_memory()
+    _capture, _orig_stdout, _orig_stderr, _orig_input = _install_terminal_capture()
+    try:
+        main()
+    finally:
+        _uninstall_terminal_capture(_orig_stdout, _orig_stderr, _orig_input)
+        _append_terminal_capture(_capture.getvalue())
