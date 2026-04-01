@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import io
 import json
+import math
 import random
 import re
 import sys
@@ -287,13 +288,18 @@ def _score_at_vigilance(
 def vigilance_sweep() -> None:
     global LAST_SWEEP_LOW, LAST_SWEEP_HIGH
 
-    print("\nVigilance sweep on one trained model")
-    model_type = _select_single_model_type(default="fuzzy_ART")
-    model_path = resolve_model_path(Path("patterns_Ass4"), model_type)
+    print("\nVigilance sweep across trained models")
+    model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
     pattern_dir = _ask_path("Pattern directory for evaluation", Path("patterns_orig"))
 
-    if not model_path.exists():
-        print(f"Model file does not exist: {model_path}")
+    loaded_models: Dict[ModelType, object] = {}
+    for model_type in _ordered_model_types():
+        model_path = resolve_model_path(model_dir, model_type)
+        if model_path.exists():
+            loaded_models[model_type] = load_model(model_path)
+
+    if not loaded_models:
+        print(f"No model files found in '{model_dir}'.")
         return
 
     low_raw = input(f"Low vigilance (default {LAST_SWEEP_LOW:.2f}): ").strip() or f"{LAST_SWEEP_LOW:.2f}"
@@ -307,9 +313,9 @@ def vigilance_sweep() -> None:
     LAST_SWEEP_LOW = low
     LAST_SWEEP_HIGH = high
 
-    model = load_model(model_path)
-    model_summary = model.summary()
-    noise_percent = _noise_percent_from_model_summary(model_summary, default_percent=3)
+    reference_type = next(iter(loaded_models.keys()))
+    reference_summary = loaded_models[reference_type].summary()
+    noise_percent = _noise_percent_from_model_summary(reference_summary, default_percent=3)
     flips_per_sample = _noise_percent_to_flips(noise_percent)
 
     clean_samples, noisy_samples = _build_eval_sets(
@@ -320,46 +326,57 @@ def vigilance_sweep() -> None:
     step = (high - low) / 9.0 if high != low else 0.0
     levels = [low + step * idx for idx in range(10)]
 
+    present_model_types = [model_type for model_type in _ordered_model_types() if model_type in loaded_models]
+
     rows: List[Dict[str, str]] = []
-    for idx, level in enumerate(levels, start=1):
-        clean_acc, clean_cov = _score_at_vigilance(model, clean_samples, level)
-        noisy_acc, noisy_cov = _score_at_vigilance(model, noisy_samples, level)
+    for level in levels:
+        row: Dict[str, str] = {"Vigilance": f"{level:.3f}"}
+        for model_type in present_model_types:
+            model = loaded_models[model_type]
+            clean_acc, _ = _score_at_vigilance(model, clean_samples, level)
+            noisy_acc, _ = _score_at_vigilance(model, noisy_samples, level)
+            row[f"clean_{model_type}"] = f"{clean_acc * 100:.0f}%"
+            row[f"noisy_{model_type}"] = f"{noisy_acc * 100:.0f}%"
+        rows.append(row)
 
-        # Report one combined metric so sweep levels are easier to compare.
-        combined_samples: Dict[str, List[List[float]]] = {}
-        for label in ALPHABET_A_TO_T:
-            combined_samples[label] = clean_samples[label] + noisy_samples[label]
-        overall_acc, _ = _score_at_vigilance(model, combined_samples, level)
+    vig_col_w = max(len("Vigilance"), max(len(row["Vigilance"]) for row in rows))
+    model_sub_col_w: Dict[ModelType, int] = {}
+    model_block_w: Dict[ModelType, int] = {}
+    for model_type in present_model_types:
+        display = _model_display_name(model_type)
+        width = 1
+        for row in rows:
+            width = max(width, len(row[f"clean_{model_type}"]))
+            width = max(width, len(row[f"noisy_{model_type}"]))
+        model_sub_col_w[model_type] = width
+        model_block_w[model_type] = max(len(display), width * 2 + 1)
 
-        rows.append(
-            {
-                "Level": str(idx),
-                "Vigilance": f"{level:.3f}",
-                "CleanAcc": f"{clean_acc * 100:.2f}%",
-                "NoisyAcc": f"{noisy_acc * 100:.2f}%",
-                "OverallAcc": f"{overall_acc * 100:.2f}%",
-                "CleanCov": f"{clean_cov * 100:.2f}%",
-                "NoisyCov": f"{noisy_cov * 100:.2f}%",
-            }
-        )
-
-    columns = ["Level", "Vigilance", "CleanAcc", "NoisyAcc", "OverallAcc", "CleanCov", "NoisyCov"]
-    col_widths: Dict[str, int] = {}
-    for col in columns:
-        col_widths[col] = max(len(col), max(len(row[col]) for row in rows))
-
-    header_line = "  ".join(f"{col:>{col_widths[col]}}" for col in columns)
-    rule = "=" * len(header_line)
+    header_line_top = "  ".join(
+        [f"{'':>{vig_col_w}}"]
+        + [f"{_model_display_name(model_type):^{model_block_w[model_type]}}" for model_type in present_model_types]
+    )
+    header_line_bottom = "  ".join(
+        [f"{'Vigilance':>{vig_col_w}}"]
+        + [
+            f"{'Clean':>{model_sub_col_w[model_type]}} {'Noisy':>{model_sub_col_w[model_type]}}"
+            for model_type in present_model_types
+        ]
+    )
+    rule = "=" * max(len(header_line_top), len(header_line_bottom))
 
     print("\n VIGILANCE SWEEP RESULTS")
-    print(f" Model:  {model_summary['model_type']}")
+    print(f" Models: {', '.join(_model_display_name(model_type) for model_type in present_model_types)}")
     print(f" Noise:  {noise_percent}% ({flips_per_sample} bit flips)")
-    print(f" Levels: {len(levels)}")
     print(rule)
-    print(header_line)
+    print(header_line_top)
+    print(header_line_bottom)
     print(rule)
     for row in rows:
-        print("  ".join(f"{row[col]:>{col_widths[col]}}" for col in columns))
+        model_cells = [
+            f"{row[f'clean_{model_type}']:>{model_sub_col_w[model_type]}} {row[f'noisy_{model_type}']:>{model_sub_col_w[model_type]}}"
+            for model_type in present_model_types
+        ]
+        print("  ".join([f"{row['Vigilance']:>{vig_col_w}}"] + model_cells))
     print(rule)
 
 
@@ -479,6 +496,17 @@ def recognize_image() -> None:
 def recognize_folder() -> None:
     model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
     image_dir = _ask_path("Image folder to recognize", Path("patterns_orig"))
+    monte_carlo_raw = input("Number of Monte Carlo runs (default 10): ").strip() or "10"
+
+    try:
+        monte_carlo_runs = int(monte_carlo_raw)
+    except ValueError:
+        print("Invalid run count. Enter an integer >= 1.")
+        return
+
+    if monte_carlo_runs < 1:
+        print("Invalid run count. Enter an integer >= 1.")
+        return
 
     image_map = discover_pattern_images(image_dir)
     if not image_map:
@@ -500,6 +528,17 @@ def recognize_folder() -> None:
 
     # Build table content first so column widths fit every value.
     ordered_types = list(_ordered_model_types())
+    recognized_folder_name = image_dir.name if image_dir.name else str(image_dir)
+    model_vigilance_text_parts: List[str] = []
+    for model_type in ordered_types:
+        if model_type not in models:
+            continue
+        summary = models[model_type].summary()
+        vigilance_value = summary.get("vigilance")
+        if isinstance(vigilance_value, (int, float, str)):
+            model_vigilance_text_parts.append(f"{_model_display_name(model_type)}={float(vigilance_value):.3f}")
+    vigilance_header_text = ", ".join(model_vigilance_text_parts) if model_vigilance_text_parts else "N/A"
+
     correct_counts: Dict[str, int] = {mt: 0 for mt in ordered_types}
     per_label_hits: Dict[str, int] = {}
     predictions: Dict[str, Dict[str, str]] = {}
@@ -551,6 +590,8 @@ def recognize_folder() -> None:
     print(" BATCH RECOGNITION RESULTS")
     print(f" Training: {model_dir}")
     print(f" Recog:    {image_dir}")
+    print(f" Folder:   {recognized_folder_name}")
+    print(f" Vig:      {vigilance_header_text}")
     print(rule)
     print(header_line)
     print(rule)
@@ -561,6 +602,128 @@ def recognize_folder() -> None:
     print(rule)
     print(_build_row("Acc", "", acc_cells))
     print(rule)
+
+    if monte_carlo_runs == 1:
+        return
+
+    def _safe_ratio(numerator: int, denominator: int) -> float:
+        return (numerator / denominator) if denominator else 0.0
+
+    def _mean_with_ci95(values: Sequence[float]) -> Tuple[float, float]:
+        mean_value = sum(values) / len(values)
+        if len(values) < 2:
+            return mean_value, 0.0
+        variance = sum((value - mean_value) ** 2 for value in values) / (len(values) - 1)
+        std_dev = math.sqrt(max(0.0, variance))
+        ci_half_width = 1.96 * std_dev / math.sqrt(len(values))
+        return mean_value, ci_half_width
+
+    metric_runs: Dict[str, Dict[str, List[float]]] = {
+        model_type: {
+            "accuracy": [],
+            "precision": [],
+            "recall": [],
+            "f1": [],
+        }
+        for model_type in ordered_types
+        if model_type in models
+    }
+
+    class_labels = list(labels_found)
+
+    for _ in range(monte_carlo_runs):
+        expected_labels: List[str] = []
+        predicted_by_model: Dict[str, List[str]] = {model_type: [] for model_type in metric_runs}
+
+        for label in labels_found:
+            vector = load_pattern_vector(image_map[label])
+            expected_labels.append(label)
+            for model_type in metric_runs:
+                prediction = models[model_type].predict(vector)
+                predicted_by_model[model_type].append(prediction.label)
+
+        sample_count = len(expected_labels)
+        for model_type, predicted_labels in predicted_by_model.items():
+            correct = sum(1 for expected, predicted in zip(expected_labels, predicted_labels) if expected == predicted)
+            accuracy = _safe_ratio(correct, sample_count)
+
+            per_class_precision: List[float] = []
+            per_class_recall: List[float] = []
+            per_class_f1: List[float] = []
+            for class_label in class_labels:
+                true_positive = sum(
+                    1
+                    for expected, predicted in zip(expected_labels, predicted_labels)
+                    if expected == class_label and predicted == class_label
+                )
+                false_positive = sum(
+                    1
+                    for expected, predicted in zip(expected_labels, predicted_labels)
+                    if expected != class_label and predicted == class_label
+                )
+                false_negative = sum(
+                    1
+                    for expected, predicted in zip(expected_labels, predicted_labels)
+                    if expected == class_label and predicted != class_label
+                )
+
+                precision = _safe_ratio(true_positive, true_positive + false_positive)
+                recall = _safe_ratio(true_positive, true_positive + false_negative)
+                f1 = _safe_ratio(2 * precision * recall, precision + recall)
+
+                per_class_precision.append(precision)
+                per_class_recall.append(recall)
+                per_class_f1.append(f1)
+
+            macro_precision = sum(per_class_precision) / len(per_class_precision)
+            macro_recall = sum(per_class_recall) / len(per_class_recall)
+            macro_f1 = sum(per_class_f1) / len(per_class_f1)
+
+            metric_runs[model_type]["accuracy"].append(accuracy)
+            metric_runs[model_type]["precision"].append(macro_precision)
+            metric_runs[model_type]["recall"].append(macro_recall)
+            metric_runs[model_type]["f1"].append(macro_f1)
+
+    def _metric_text(values: Sequence[float], as_percent: bool) -> str:
+        mean_value, ci_half_width = _mean_with_ci95(values)
+        if as_percent:
+            return f"{mean_value * 100:.2f}% +- {ci_half_width * 100:.2f}%"
+        return f"{mean_value:.4f} +- {ci_half_width:.4f}"
+
+    summary_rows: List[Dict[str, str]] = []
+    for model_type in ordered_types:
+        if model_type not in metric_runs:
+            continue
+        summary_rows.append(
+            {
+                "Model": _model_display_name(model_type),
+                "Accuracy": _metric_text(metric_runs[model_type]["accuracy"], as_percent=True),
+                "Precision": _metric_text(metric_runs[model_type]["precision"], as_percent=False),
+                "Recall": _metric_text(metric_runs[model_type]["recall"], as_percent=False),
+                "F1": _metric_text(metric_runs[model_type]["f1"], as_percent=False),
+            }
+        )
+
+    columns = ["Model", "Accuracy", "Precision", "Recall", "F1"]
+    col_widths: Dict[str, int] = {}
+    for column in columns:
+        col_widths[column] = max(len(column), max(len(row[column]) for row in summary_rows))
+
+    summary_header = "  ".join(f"{column:>{col_widths[column]}}" for column in columns)
+    summary_rule = "=" * len(summary_header)
+
+    print(f"\n{summary_rule}")
+    print(" MONTE CARLO METRIC SUMMARY")
+    print(f" Runs: {monte_carlo_runs}")
+    print(f" Folder: {recognized_folder_name}")
+    print(f" Vig: {vigilance_header_text}")
+    print(" Metrics: mean +- 95% CI")
+    print(summary_rule)
+    print(summary_header)
+    print(summary_rule)
+    for row in summary_rows:
+        print("  ".join(f"{row[column]:>{col_widths[column]}}" for column in columns))
+    print(summary_rule)
 
 
 def show_model_summary() -> None:

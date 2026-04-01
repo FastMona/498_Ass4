@@ -2652,8 +2652,8 @@
   ],
   "training_metrics": {
     "clean_accuracy": 1.0,
-    "noisy_accuracy": 0.99,
+    "noisy_accuracy": 0.895,
     "samples_seen": 400,
-    "noisy_metric_label": "3%Noisy"
+    "noisy_metric_label": "20%Noisy"
   }
 }
