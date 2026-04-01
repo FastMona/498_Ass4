@@ -6,6 +6,7 @@ import builtins
 import io
 import json
 import random
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -22,12 +23,27 @@ from nn_model_art import (
     load_model,
     load_pattern_vector,
     load_vector_from_path,
+    resolve_model_path,
 )
 from nn_train_art import train_models
 
 
 LAST_SWEEP_LOW = 0.60
 LAST_SWEEP_HIGH = 0.95
+
+DISPLAY_ORDER: Tuple[ModelType, ...] = (
+    "ART_sing",
+    "ART_1",
+    "fuzzy_ART",
+    "aug_fuz_ART",
+)
+
+DISPLAY_NAME: Dict[ModelType, str] = {
+    "ART_sing": "ART_sing",
+    "ART_1": "ART_1",
+    "fuzzy_ART": "fuzzy_ART",
+    "aug_fuz_ART": "aug_fuz_ART",
+}
 
 _last_paths: Dict[str, Path] = {}
 _path_memory_file = Path("path_memory.json")
@@ -128,6 +144,14 @@ def _print_header() -> None:
     print("=" * 72)
 
 
+def _model_display_name(model_type: ModelType) -> str:
+    return DISPLAY_NAME.get(model_type, model_type)
+
+
+def _ordered_model_types() -> Sequence[ModelType]:
+    return [model_type for model_type in DISPLAY_ORDER if model_type in MODEL_TYPES]
+
+
 def _ask_path(prompt: str, default: Path) -> Path:
     current = _last_paths.get(prompt, default)
     raw = input(f"{prompt} (Enter to keep: {current}): ").strip()
@@ -143,48 +167,48 @@ def _ask_path(prompt: str, default: Path) -> Path:
 
 def _select_model_types() -> Sequence[ModelType]:
     print("\nSelect model type")
-    print("1. ART1")
-    print("2. ART1 Single Pass")
-    print("3. Fuzzy ART")
-    print("4. Augmented Fuzzy ART")
+    print("1. ART_1")
+    print("2. ART_sing")
+    print("3. fuzzy_ART")
+    print("4. aug_fuz_ART")
     print("5. All four (default)")
 
     raw = input("Choose an option (1-5, default 5): ").strip() or "5"
     if raw == "1":
-        return ["art1"]
+        return ["ART_1"]
     if raw == "2":
-        return ["art1_single_pass"]
+        return ["ART_sing"]
     if raw == "3":
-        return ["fuzzy_art"]
+        return ["fuzzy_ART"]
     if raw == "4":
-        return ["aug_fuzzy_art"]
-    return list(MODEL_TYPES)
+        return ["aug_fuz_ART"]
+    return list(_ordered_model_types())
 
 
-def _select_single_model_type(default: ModelType = "fuzzy_art") -> ModelType:
+def _select_single_model_type(default: ModelType = "fuzzy_ART") -> ModelType:
     print("\nSelect trained model")
-    print("1. ART1")
-    print("2. ART1 Single Pass")
-    print("3. Fuzzy ART")
-    print("4. Augmented Fuzzy ART")
+    print("1. ART_1")
+    print("2. ART_sing")
+    print("3. fuzzy_ART")
+    print("4. aug_fuz_ART")
 
     default_option = "3"
-    if default == "art1":
+    if default == "ART_1":
         default_option = "1"
-    elif default == "art1_single_pass":
+    elif default == "ART_sing":
         default_option = "2"
-    elif default == "aug_fuzzy_art":
+    elif default == "aug_fuz_ART":
         default_option = "4"
 
     raw = input(f"Choose an option (1-4, default {default_option}): ").strip() or default_option
     if raw == "1":
-        return "art1"
+        return "ART_1"
     if raw == "2":
-        return "art1_single_pass"
+        return "ART_sing"
     if raw == "3":
-        return "fuzzy_art"
+        return "fuzzy_ART"
     if raw == "4":
-        return "aug_fuzzy_art"
+        return "aug_fuz_ART"
     return default
 
 
@@ -194,6 +218,21 @@ def _flip_bits(vector: Sequence[float], flips: int, rng: random.Random) -> List[
     for index in rng.sample(range(len(augmented)), flips):
         augmented[index] = 0.0 if augmented[index] > 0.5 else 1.0
     return augmented
+
+
+def _noise_percent_to_flips(noise_percent: int, input_bits: int = 64) -> int:
+    bounded_percent = max(0, min(100, int(noise_percent)))
+    flips = int(round((bounded_percent / 100.0) * input_bits))
+    return max(0, min(input_bits, flips))
+
+
+def _noise_percent_from_model_summary(summary: Dict[str, object], default_percent: int = 3) -> int:
+    label_value = summary.get("noisy_metric_label")
+    if isinstance(label_value, str):
+        match = re.search(r"(\d+)\s*%", label_value)
+        if match:
+            return max(0, min(100, int(match.group(1))))
+    return default_percent
 
 
 def _build_eval_sets(
@@ -249,8 +288,8 @@ def vigilance_sweep() -> None:
     global LAST_SWEEP_LOW, LAST_SWEEP_HIGH
 
     print("\nVigilance sweep on one trained model")
-    model_type = _select_single_model_type(default="fuzzy_art")
-    model_path = Path("patterns_Ass4") / default_model_path(model_type).name
+    model_type = _select_single_model_type(default="fuzzy_ART")
+    model_path = resolve_model_path(Path("patterns_Ass4"), model_type)
     pattern_dir = _ask_path("Pattern directory for evaluation", Path("patterns_orig"))
 
     if not model_path.exists():
@@ -268,8 +307,15 @@ def vigilance_sweep() -> None:
     LAST_SWEEP_LOW = low
     LAST_SWEEP_HIGH = high
 
-    clean_samples, noisy_samples = _build_eval_sets(pattern_dir=pattern_dir)
     model = load_model(model_path)
+    model_summary = model.summary()
+    noise_percent = _noise_percent_from_model_summary(model_summary, default_percent=3)
+    flips_per_sample = _noise_percent_to_flips(noise_percent)
+
+    clean_samples, noisy_samples = _build_eval_sets(
+        pattern_dir=pattern_dir,
+        flips_per_sample=flips_per_sample,
+    )
 
     step = (high - low) / 9.0 if high != low else 0.0
     levels = [low + step * idx for idx in range(10)]
@@ -306,7 +352,8 @@ def vigilance_sweep() -> None:
     rule = "=" * len(header_line)
 
     print("\n VIGILANCE SWEEP RESULTS")
-    print(f" Model:  {model.summary()['model_type']}")
+    print(f" Model:  {model_summary['model_type']}")
+    print(f" Noise:  {noise_percent}% ({flips_per_sample} bit flips)")
     print(f" Levels: {len(levels)}")
     print(rule)
     print(header_line)
@@ -338,9 +385,23 @@ def create_art_models() -> None:
 
     epochs = int(input("Epochs (default 20): ").strip() or "20")
     augment_per_symbol = int(input("Augmentations per symbol per epoch (default 10): ").strip() or "10")
-    flips_per_sample = int(input("Bit flips per augmentation (default 2): ").strip() or "2")
+    noise_percent_raw = input("Noise % 0-100 (default 3): ").strip() or "3"
+    try:
+        noise_percent = int(noise_percent_raw)
+    except ValueError:
+        print("Invalid noise percent. Enter an integer from 0 to 100.")
+        return
 
-    print("\nNote: augmentation is applied only to aug_fuzzy_art.")
+    if noise_percent < 0 or noise_percent > 100:
+        print("Invalid noise percent. Enter an integer from 0 to 100.")
+        return
+
+    flips_per_sample = _noise_percent_to_flips(noise_percent)
+    noise_label = f"{noise_percent}%Noise"
+
+    print("\nNote: augmentation is applied only to aug_fuz_ART.")
+    print("Augmented training for aug_fuz_ART always flips exactly 2 bits per synthetic sample.")
+    print(f"Noise setting for noisy evaluation/reporting: {noise_label} ({flips_per_sample} bit flips on 8x8 input)")
 
     reports = train_models(
         model_types=model_types,
@@ -349,19 +410,22 @@ def create_art_models() -> None:
         epochs=epochs,
         augment_per_symbol=augment_per_symbol,
         flips_per_sample=flips_per_sample,
+        noise_percent=noise_percent,
         vigilance=float(vigilance_raw),
         learning_rate=float(learning_raw),
         choice_alpha=float(alpha_raw),
     )
 
     print("\nCreate + train complete")
-    print("Model           Clean      Noisy      Samples")
+    print(f"Model           Clean      {noise_label:<11}Samples")
     print("------------------------------------------------")
 
-    sorted_reports = sorted(reports.values(), key=lambda item: item.noisy_accuracy, reverse=True)
-    for report in sorted_reports:
+    for model_type in _ordered_model_types():
+        if model_type not in reports:
+            continue
+        report = reports[model_type]
         print(
-            f"{report.model_type:<14}"
+            f"{_model_display_name(report.model_type):<14}"
             f"{report.clean_accuracy * 100:>6.2f}%   "
             f"{report.noisy_accuracy * 100:>6.2f}%   "
             f"{report.samples_seen}"
@@ -380,14 +444,14 @@ def recognize_image() -> None:
     vector = load_vector_from_path(image_path)
 
     rows: List[Tuple[str, str, str]] = []
-    for model_type in MODEL_TYPES:
-        model_path = model_dir / default_model_path(model_type).name
+    for model_type in _ordered_model_types():
+        model_path = resolve_model_path(model_dir, model_type)
         if not model_path.exists():
-            rows.append((model_type, "-", "-"))
+            rows.append((_model_display_name(model_type), "-", "-"))
             continue
         model = load_model(model_path)
         prediction = model.predict(vector)
-        rows.append((model_type, prediction.label, f"{prediction.confidence * 100:.2f}%"))
+        rows.append((_model_display_name(model_type), prediction.label, f"{prediction.confidence * 100:.2f}%"))
 
     model_col_w = max(len("Model"), max(len(r[0]) for r in rows))
     pred_col_w = max(len("Predicted"), max(len(r[1]) for r in rows))
@@ -426,7 +490,7 @@ def recognize_folder() -> None:
     # Load each model once to keep batch evaluation responsive.
     models = {}
     for model_type in MODEL_TYPES:
-        model_path = model_dir / default_model_path(model_type).name
+        model_path = resolve_model_path(model_dir, model_type)
         if model_path.exists():
             models[model_type] = load_model(model_path)
 
@@ -435,14 +499,15 @@ def recognize_folder() -> None:
         return
 
     # Build table content first so column widths fit every value.
-    correct_counts: Dict[str, int] = {mt: 0 for mt in MODEL_TYPES}
+    ordered_types = list(_ordered_model_types())
+    correct_counts: Dict[str, int] = {mt: 0 for mt in ordered_types}
     per_label_hits: Dict[str, int] = {}
     predictions: Dict[str, Dict[str, str]] = {}
     for label in labels_found:
         vector = load_pattern_vector(image_map[label])
         predictions[label] = {}
         label_hits = 0
-        for model_type in MODEL_TYPES:
+        for model_type in ordered_types:
             if model_type not in models:
                 predictions[label][model_type] = "N/A"
             else:
@@ -457,7 +522,7 @@ def recognize_folder() -> None:
     total = len(labels_found)
 
     acc_cells: Dict[str, str] = {}
-    for model_type in MODEL_TYPES:
+    for model_type in ordered_types:
         if model_type in models and total:
             acc_cells[model_type] = f"{correct_counts[model_type]}/{total} ({correct_counts[model_type] / total * 100:.1f}%)"
         else:
@@ -468,17 +533,18 @@ def recognize_folder() -> None:
     label_col_w = max(len("Label"), len("Acc"))
     star_col_w = max(len("*"), max((len(star_cells[label]) for label in labels_found), default=0))
     col_widths: Dict[str, int] = {}
-    for model_type in MODEL_TYPES:
+    for model_type in ordered_types:
         all_vals = [predictions[lbl][model_type] for lbl in labels_found] + [acc_cells[model_type]]
-        col_widths[model_type] = max(len(model_type), max(len(v) for v in all_vals))
+        display_name = _model_display_name(model_type)
+        col_widths[model_type] = max(len(display_name), max(len(v) for v in all_vals))
 
     def _build_row(left: str, stars: str, cells: Dict[str, str]) -> str:
         parts = [f"{left:<{label_col_w}}", f"{stars:<{star_col_w}}"]
-        for mt in MODEL_TYPES:
+        for mt in ordered_types:
             parts.append(f"{cells[mt]:>{col_widths[mt]}}")
         return "  ".join(parts)
 
-    header_line = _build_row("Label", "*", {mt: mt for mt in MODEL_TYPES})
+    header_line = _build_row("Label", "*", {mt: _model_display_name(mt) for mt in ordered_types})
     rule = "=" * len(header_line)
 
     print(f"\n{rule}")
@@ -500,10 +566,12 @@ def recognize_folder() -> None:
 def show_model_summary() -> None:
     model_dir = _ask_path("Model directory", Path("patterns_Ass4"))
 
-    metric_names = ["Clean %", "Noisy %", "Samples", "Vig", "LR", "alpha", "Templates"] + list(ALPHABET_A_TO_T)
+    noisy_metric_name = "Noisy %"
+    metric_names = ["Clean %", noisy_metric_name, "Samples", "Vig", "LR", "alpha", "Templates"] + list(ALPHABET_A_TO_T)
     model_values: Dict[str, List[str]] = {}
-    for model_type in MODEL_TYPES:
-        model_path = model_dir / default_model_path(model_type).name
+    ordered_types = list(_ordered_model_types())
+    for model_type in ordered_types:
+        model_path = resolve_model_path(model_dir, model_type)
         if not model_path.exists():
             model_values[model_type] = ["-", "-", "-", "-", "-", "-", "-"] + ["-"] * len(ALPHABET_A_TO_T)
             continue
@@ -516,7 +584,11 @@ def show_model_summary() -> None:
         alpha_value = summary.get("choice_alpha")
         clean_accuracy_value = summary.get("clean_accuracy")
         noisy_accuracy_value = summary.get("noisy_accuracy")
+        noisy_metric_label_value = summary.get("noisy_metric_label")
         samples_seen_value = summary.get("samples_seen")
+
+        if isinstance(noisy_metric_label_value, str) and noisy_metric_label_value.strip():
+            noisy_metric_name = noisy_metric_label_value.strip()
 
         clean_accuracy_text = "-"
         if isinstance(clean_accuracy_value, (int, float, str)):
@@ -567,19 +639,21 @@ def show_model_summary() -> None:
             templates_text,
         ] + per_label_counts
 
+    metric_names = ["Clean %", noisy_metric_name, "Samples", "Vig", "LR", "alpha", "Templates"] + list(ALPHABET_A_TO_T)
+
     print("\n MODEL TRAINING TABLE")
-    model_headers = list(MODEL_TYPES)
+    model_headers = ordered_types
     row_header_width = max(len("Metric"), max(len(name) for name in metric_names))
 
     col_widths: List[int] = []
     for model_name in model_headers:
         values = model_values.get(model_name, ["-"] * len(metric_names))
-        col_width = max(len(model_name), max(len(value) for value in values))
+        col_width = max(len(_model_display_name(model_name)), max(len(value) for value in values))
         col_widths.append(col_width)
 
     header_cells = [f"{'Metric':<{row_header_width}}"]
     for model_name, width in zip(model_headers, col_widths):
-        header_cells.append(f"{model_name:>{width}}")
+        header_cells.append(f"{_model_display_name(model_name):>{width}}")
     header_line = "  ".join(header_cells)
     print("=" * len(header_line))
     print(header_line)
@@ -598,7 +672,7 @@ def main() -> None:
     while True:
         _print_header()
         print("1. Manage patterns (patterns.py)")
-        print("2. Create + train ART models (ART1 / Fuzzy / Aug Fuzzy)")
+        print("2. Create + train ART models (ART_sing / ART_1 / fuzzy_ART / aug_fuz_ART)")
         print("3. Sweep vigilance on one trained model")
         print("4. Recognize a character image")
         print("5. Recognize a folder (batch of images)")

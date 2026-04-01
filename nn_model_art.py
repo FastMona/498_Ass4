@@ -13,12 +13,45 @@ from PIL import Image
 ALPHABET_A_TO_T: Tuple[str, ...] = tuple(chr(code) for code in range(ord("A"), ord("T") + 1))
 DEFAULT_PATTERN_DIR = Path("patterns_orig")
 DEFAULT_MODEL_DIR = Path("patterns_Ass4")
-ModelType = Literal["art1", "art1_single_pass", "fuzzy_art", "aug_fuzzy_art"]
-MODEL_TYPES: Tuple[ModelType, ...] = ("art1", "art1_single_pass", "fuzzy_art", "aug_fuzzy_art")
+ModelType = Literal["ART_sing", "ART_1", "fuzzy_ART", "aug_fuz_ART"]
+MODEL_TYPES: Tuple[ModelType, ...] = ("ART_sing", "ART_1", "fuzzy_ART", "aug_fuz_ART")
+
+LEGACY_MODEL_TYPE_BY_CURRENT: Dict[ModelType, str] = {
+    "ART_sing": "art1_single_pass",
+    "ART_1": "art1",
+    "fuzzy_ART": "fuzzy_art",
+    "aug_fuz_ART": "aug_fuzzy_art",
+}
+
+LEGACY_TO_CURRENT_MODEL_TYPE: Dict[str, ModelType] = {
+    legacy: current for current, legacy in LEGACY_MODEL_TYPE_BY_CURRENT.items()
+}
+
+
+def normalize_model_type(model_type: str) -> ModelType:
+    if model_type in MODEL_TYPES:
+        return model_type  # type: ignore[return-value]
+    if model_type in LEGACY_TO_CURRENT_MODEL_TYPE:
+        return LEGACY_TO_CURRENT_MODEL_TYPE[model_type]
+    raise ValueError(f"Unknown model type: {model_type}")
 
 
 def default_model_path(model_type: ModelType) -> Path:
     return DEFAULT_MODEL_DIR / f"{model_type}_a_to_t.json"
+
+
+def legacy_model_path(model_type: ModelType) -> Path:
+    return DEFAULT_MODEL_DIR / f"{LEGACY_MODEL_TYPE_BY_CURRENT[model_type]}_a_to_t.json"
+
+
+def resolve_model_path(model_dir: Path, model_type: ModelType) -> Path:
+    current_path = model_dir / default_model_path(model_type).name
+    if current_path.exists():
+        return current_path
+    legacy_path = model_dir / legacy_model_path(model_type).name
+    if legacy_path.exists():
+        return legacy_path
+    return current_path
 
 
 def _threshold_pixel(value: int) -> float:
@@ -72,7 +105,7 @@ class Prediction:
 class BaseARTCharacterModel:
     """Centralize shared ART behavior so training and inference stay consistent."""
 
-    model_type: ModelType = "fuzzy_art"
+    model_type: ModelType = "fuzzy_ART"
 
     def __init__(
         self,
@@ -189,12 +222,20 @@ class BaseARTCharacterModel:
         summary.update(self.training_metrics)
         return summary
 
-    def set_training_metrics(self, clean_accuracy: float, noisy_accuracy: float, samples_seen: int) -> None:
+    def set_training_metrics(
+        self,
+        clean_accuracy: float,
+        noisy_accuracy: float,
+        samples_seen: int,
+        noisy_metric_label: str | None = None,
+    ) -> None:
         self.training_metrics = {
             "clean_accuracy": float(clean_accuracy),
             "noisy_accuracy": float(noisy_accuracy),
             "samples_seen": int(samples_seen),
         }
+        if noisy_metric_label:
+            self.training_metrics["noisy_metric_label"] = str(noisy_metric_label)
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -281,7 +322,7 @@ class BaseARTCharacterModel:
 
 
 class ART1CharacterModel(BaseARTCharacterModel):
-    model_type: ModelType = "art1"
+    model_type: ModelType = "ART_1"
 
     def _preprocess_input(self, vector: Sequence[float]) -> List[float]:
         return [1.0 if float(value) >= 0.5 else 0.0 for value in vector]
@@ -301,11 +342,11 @@ class ART1SinglePassCharacterModel(ART1CharacterModel):
     the resulting templates depend heavily on presentation order.
     """
 
-    model_type: ModelType = "art1_single_pass"
+    model_type: ModelType = "ART_sing"
 
 
 class FuzzyARTCharacterModel(BaseARTCharacterModel):
-    model_type: ModelType = "fuzzy_art"
+    model_type: ModelType = "fuzzy_ART"
 
     @property
     def coded_size(self) -> int:
@@ -316,7 +357,7 @@ class FuzzyARTCharacterModel(BaseARTCharacterModel):
 
 
 class AugmentedFuzzyARTCharacterModel(FuzzyARTCharacterModel):
-    model_type: ModelType = "aug_fuzzy_art"
+    model_type: ModelType = "aug_fuz_ART"
 
     def __init__(
         self,
@@ -398,13 +439,13 @@ def create_model(
     learning_rate: float = 0.6,
     choice_alpha: float = 1e-3,
 ) -> BaseARTCharacterModel:
-    if model_type == "art1":
+    if model_type == "ART_1":
         return ART1CharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
-    if model_type == "art1_single_pass":
+    if model_type == "ART_sing":
         return ART1SinglePassCharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
-    if model_type == "fuzzy_art":
+    if model_type == "fuzzy_ART":
         return FuzzyARTCharacterModel(vigilance=vigilance, learning_rate=learning_rate, choice_alpha=choice_alpha)
-    if model_type == "aug_fuzzy_art":
+    if model_type == "aug_fuz_ART":
         return AugmentedFuzzyARTCharacterModel(
             vigilance=vigilance,
             learning_rate=learning_rate,
@@ -467,15 +508,15 @@ def load_model(model_path: Path) -> BaseARTCharacterModel:
     if not isinstance(payload, dict):
         raise ValueError("Saved model must be a JSON object")
 
-    model_type_raw = payload.get("model_type", "fuzzy_art")
-    model_type = str(model_type_raw)
-    if model_type == "art1":
+    model_type_raw = payload.get("model_type", "fuzzy_ART")
+    model_type = normalize_model_type(str(model_type_raw))
+    if model_type == "ART_1":
         return ART1CharacterModel.from_dict(payload)
-    if model_type == "art1_single_pass":
+    if model_type == "ART_sing":
         return ART1SinglePassCharacterModel.from_dict(payload)
-    if model_type == "fuzzy_art":
+    if model_type == "fuzzy_ART":
         return FuzzyARTCharacterModel.from_dict(payload)
-    if model_type == "aug_fuzzy_art":
+    if model_type == "aug_fuz_ART":
         return AugmentedFuzzyARTCharacterModel.from_dict(payload)
 
     raise ValueError(f"Unknown model type in model file: {model_type}")

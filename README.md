@@ -2,9 +2,10 @@
 
 Neural-network assignment project for recognizing symbols **A-T** from 8x8 black/white patterns using three ART-family models:
 
-- ART1
-- Fuzzy ART
-- Augmented Fuzzy ART
+- ART_sing
+- ART_1
+- fuzzy_ART
+- aug_fuz_ART
 
 The repository includes:
 
@@ -64,10 +65,10 @@ python nn_train_art.py --model-type all --pattern-dir patterns_orig --model-dir 
 
 Useful options:
 
-- `--model-type`: `all`, `art1`, `fuzzy_art`, `aug_fuzzy_art`
+- `--model-type`: `all`, `ART_sing`, `ART_1`, `fuzzy_ART`, `aug_fuz_ART`
 - `--epochs`: training epochs (default `20`)
 - `--augment-per-symbol`: augmentations per symbol (default `10`)
-- `--flips-per-sample`: bit flips per synthetic sample (default `2`)
+- `--noise-percent`: integer noise percent 0-100, converted to flips by rounding over 64 bits for noisy evaluation/reporting (default `3`)
 - `--vigilance`: vigilance threshold (default `0.82`)
 - `--learning-rate`: update rate (default `0.6`)
 - `--choice-alpha`: ART choice denominator stabilizer (default `0.001`)
@@ -89,12 +90,14 @@ Example:
 
 Trained models are saved as JSON in `patterns_Ass4/`, typically:
 
-- `art1_a_to_t.json`
-- `fuzzy_art_a_to_t.json`
-- `aug_fuzzy_art_a_to_t.json`
+- `ART_sing_a_to_t.json`
+- `ART_1_a_to_t.json`
+- `fuzzy_ART_a_to_t.json`
+- `aug_fuz_ART_a_to_t.json`
 
 ## Notes
 
 - The assignment pipeline assumes symbols **A-T**.
-- Augmentation is only applied for `aug_fuzzy_art` during training.
+- Augmentation is only applied for `aug_fuz_ART` during training, and each augmented sample flips exactly 2 bits.
+- User-selected noise percent is still used for noisy evaluation/reporting in training and dashboard sweep output.
 - Dashboard sessions are appended to `terminal.txt` for reproducibility/debugging.

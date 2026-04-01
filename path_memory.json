@@ -3,5 +3,6 @@
   "Image folder to recognize": "patterns_noisy",
   "Image path to recognize": "patterns_orig\\pattern_B.jpg",
   "Pattern folder for manager": "patterns_orig",
-  "Pattern directory": "patterns_alt"
+  "Pattern directory": "patterns_orig",
+  "Pattern directory for evaluation": "patterns_orig"
 }
